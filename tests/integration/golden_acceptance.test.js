@@ -8,13 +8,13 @@ const { join, resolve } = require("node:path");
 const test = require("node:test");
 const { promisify } = require("node:util");
 const { readFileSync } = require("node:fs");
+const { _test: validator } = require("../../resources/validator/handler");
 
 const execFileAsync = promisify(execFile);
 const GOLDEN_ROOT = resolve(__dirname, "../golden/subscription_billing/v013");
 const requireGolden = createRequire(join(GOLDEN_ROOT, "package.json"));
 const { MongoClient, ObjectId } = requireGolden("mongodb");
 const schema = JSON.parse(readFileSync(join(GOLDEN_ROOT, "schema_design.json"), "utf8"));
-const queryPatterns = JSON.parse(readFileSync(join(GOLDEN_ROOT, "query_patterns.json"), "utf8"));
 
 const EXPECTED_COUNTS = {
   accounts: 3,
@@ -78,58 +78,10 @@ async function assertIndexes(db) {
   }
 }
 
-async function assertRelationships(db) {
+async function assertFieldSchemas(db) {
   for (const collection of schema.collections) {
-    for (const relationship of collection.relationships || []) {
-      const [targetCollection, targetField] = relationship.references.split(".", 2);
-      const missing = await db.collection(collection.name).aggregate([
-        {
-          $lookup: {
-            from: targetCollection,
-            localField: relationship.field,
-            foreignField: targetField,
-            as: "__relationship_target",
-          },
-        },
-        { $match: { "__relationship_target.0": { $exists: false } } },
-        { $limit: 1 },
-      ]).toArray();
-      assert.equal(
-        missing.length,
-        0,
-        `Broken relationship ${collection.name}.${relationship.field} -> ${relationship.references}`,
-      );
-    }
-  }
-}
-
-function substitutePlaceholders(value, sample, fieldName = "") {
-  if (Array.isArray(value)) return value.map((item) => substitutePlaceholders(item, sample, fieldName));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-      key,
-      substitutePlaceholders(item, sample, key.startsWith("$") ? fieldName : key),
-    ]));
-  }
-  if (typeof value !== "string" || !/^<.*>$/.test(value)) return value;
-  if (value.includes("object_id")) return sample[fieldName] || sample._id;
-  if (value.includes("cursor_date")) return sample[fieldName] || new Date("2100-01-01T00:00:00Z");
-  return sample[fieldName];
-}
-
-async function assertQueryPatterns(db) {
-  for (const pattern of queryPatterns.patterns) {
-    const collection = db.collection(pattern.collection);
-    if (pattern.operation === "aggregate") {
-      await collection.aggregate(pattern.pipeline || []).toArray();
-      continue;
-    }
-    const sample = await collection.findOne({});
-    assert.ok(sample, `Query pattern ${pattern.id} requires seed data`);
-    const match = substitutePlaceholders(pattern.match || {}, sample);
-    let cursor = collection.find(match);
-    if (pattern.sort) cursor = cursor.sort(pattern.sort);
-    await cursor.limit(pattern.limit || 1).toArray();
+    const documents = await db.collection(collection.name).find({}).toArray();
+    for (const document of documents) validator.validateDocumentFields(document, collection.fields, collection.name);
   }
 }
 
@@ -183,15 +135,13 @@ test("golden capped validation is deterministic and completes within 60 seconds"
     await runSeed(uri, database);
     await assertCounts(db);
     await assertIndexes(db);
-    await assertRelationships(db);
-    await assertQueryPatterns(db);
+    await assertFieldSchemas(db);
     const firstSnapshot = await databaseSnapshot(db);
 
     await runSeed(uri, database);
     await assertCounts(db);
     await assertIndexes(db);
-    await assertRelationships(db);
-    await assertQueryPatterns(db);
+    await assertFieldSchemas(db);
     const secondSnapshot = await databaseSnapshot(db);
 
     assert.deepEqual(secondSnapshot, firstSnapshot, "rerun must reproduce documents and indexes exactly");

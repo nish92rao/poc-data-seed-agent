@@ -27,7 +27,6 @@ class SharedStateError(RuntimeError):
 class SharedPocContext:
     pov_id: str
     data_model: GitHubArtifactReference
-    query_patterns: GitHubArtifactReference
     prior_seed: dict[str, str] | None
 
     @property
@@ -103,26 +102,15 @@ def load_shared_poc(
             expected_repository=expected_repository,
             expected_path="spec_architect/data_model.json",
         )
-        query_patterns = parse_github_artifact_reference(
-            _mapping(artifacts.get("query_patterns"), "query_patterns"),
-            expected_repository=expected_repository,
-            expected_path="spec_architect/query_patterns.json",
-        )
     except ValueError as error:
         raise SharedStateError("SHARED_STATE_INVALID", str(error), retryable=False) from error
-    if data_model.branch != query_patterns.branch:
-        raise SharedStateError(
-            "SHARED_STATE_INVALID",
-            "POC input artifacts must use the same GitHub branch.",
-            retryable=False,
-        )
     prior_seed = artifacts.get("seed")
     if prior_seed is not None:
         try:
             prior_seed = dict(_mapping(prior_seed, "seed"))
         except ValueError as error:
             raise SharedStateError("SHARED_STATE_INVALID", str(error), retryable=False) from error
-    return SharedPocContext(pov_id, data_model, query_patterns, prior_seed)
+    return SharedPocContext(pov_id, data_model, prior_seed)
 
 
 def publish_seed_pointer(
@@ -139,7 +127,6 @@ def publish_seed_pointer(
     filter_document: dict[str, Any] = {
         "pov_id": context.pov_id,
         "spec_artifacts.data_model": _reference_document(context.data_model),
-        "spec_artifacts.query_patterns": _reference_document(context.query_patterns),
     }
     if context.prior_seed is None:
         filter_document["spec_artifacts.seed"] = {"$exists": False}

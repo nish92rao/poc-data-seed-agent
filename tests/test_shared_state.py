@@ -39,19 +39,16 @@ class FakeCollection:
         return {"spec_artifacts": {"seed": self.last_update["$set"]["spec_artifacts.seed"]}}
 
 
-def poc_document(*, seed=None, query_branch="owner/branch") -> dict:
+def poc_document(*, seed=None, query_patterns=None) -> dict:
     artifacts = {
         "data_model": {
             "path": "spec_architect/data_model.json",
             "commit_sha": "a" * 40,
             "url": "https://github.com/owner/repo/blob/owner/branch/spec_architect/data_model.json",
         },
-        "query_patterns": {
-            "path": "spec_architect/query_patterns.json",
-            "commit_sha": "b" * 40,
-            "url": f"https://github.com/owner/repo/blob/{query_branch}/spec_architect/query_patterns.json",
-        },
     }
+    if query_patterns is not None:
+        artifacts["query_patterns"] = query_patterns
     if seed is not None:
         artifacts["seed"] = seed
     return {"pov_id": "123", "spec_artifacts": artifacts}
@@ -69,13 +66,22 @@ class SharedStateTests(unittest.TestCase):
             (FakeCollection([]), "POC_NOT_FOUND", False),
             (FakeCollection([poc_document(), poc_document()]), "SHARED_STATE_INVALID", False),
             (FakeCollection([{"pov_id": "123"}]), "SHARED_STATE_INVALID", False),
-            (FakeCollection([poc_document(query_branch="other/branch")]), "SHARED_STATE_INVALID", False),
         )
         for collection, code, retryable in cases:
             with self.subTest(code=code), self.assertRaises(SharedStateError) as raised:
                 load_shared_poc("123", repository="owner/repo", collection=collection)
             self.assertEqual(raised.exception.code, code)
             self.assertEqual(raised.exception.retryable, retryable)
+
+    def test_ignores_missing_or_malformed_query_patterns(self) -> None:
+        for query_patterns in (None, "invalid", {"url": "https://example.test"}):
+            with self.subTest(query_patterns=query_patterns):
+                context = load_shared_poc(
+                    "123",
+                    repository="owner/repo",
+                    collection=FakeCollection([poc_document(query_patterns=query_patterns)]),
+                )
+                self.assertEqual(context.branch, "owner/branch")
 
     def test_publish_uses_exact_source_and_absent_seed_cas(self) -> None:
         collection = FakeCollection([poc_document()])
@@ -87,6 +93,7 @@ class SharedStateTests(unittest.TestCase):
         }
         publish_seed_pointer(context, pointer, collection=collection)
         self.assertEqual(collection.last_filter["pov_id"], "123")
+        self.assertNotIn("spec_artifacts.query_patterns", collection.last_filter)
         self.assertEqual(collection.last_filter["spec_artifacts.seed"], {"$exists": False})
         self.assertEqual(collection.last_update["$set"]["spec_artifacts.seed"], pointer)
         self.assertIn("updated_at", collection.last_update["$set"])

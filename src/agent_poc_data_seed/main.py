@@ -30,11 +30,9 @@ from agent_poc_data_seed.response import format_invalid_request_response, format
 from agent_poc_data_seed.artifact_layout import seed_key
 from agent_poc_data_seed.state import HelloWorldState, SeedWorkflowState
 from agent_poc_data_seed.shared_context import (
-    apply_query_indexes,
     GitHubArtifactReference,
     next_seed_version,
     normalize_data_model,
-    normalize_query_patterns,
 )
 from agent_poc_data_seed.shared_state import SharedPocContext, SharedStateError, load_shared_poc, publish_seed_pointer
 from agent_poc_data_seed.system_message import LOCAL_SYSTEM_PROMPT, system_prompt_for
@@ -929,14 +927,9 @@ def build_agent() -> CompiledStateGraph:
                     resolved["repository"], resolved["branch"], resolved["data_model"]["path"],
                     resolved["data_model"]["commit_sha"], resolved["data_model"]["url"],
                 )
-                query_reference = GitHubArtifactReference(
-                    resolved["repository"], resolved["branch"], resolved["query_patterns"]["path"],
-                    resolved["query_patterns"]["commit_sha"], resolved["query_patterns"]["url"],
-                )
                 shared = SharedPocContext(
                     envelope.poc_id,
                     data_reference,
-                    query_reference,
                     resolved.get("prior_seed"),
                 )
                 seed_path = f"seed/{code_version}/seed.js"
@@ -1041,18 +1034,10 @@ def build_agent() -> CompiledStateGraph:
             store = GitHubRepoStore.from_environment()
             branch_info = store.resolve_existing_branch(shared.branch)
             data_model_artifact = store.read_project_file(shared.data_model.path, shared.data_model.commit_sha)
-            query_artifact = store.read_project_file(shared.query_patterns.path, shared.query_patterns.commit_sha)
             data_model_raw = json.loads(data_model_artifact.content)
-            query_patterns_raw = json.loads(query_artifact.content)
-            if not isinstance(data_model_raw, Mapping) or not isinstance(query_patterns_raw, Mapping):
-                raise ValueError("POC specification artifacts must contain JSON objects")
+            if not isinstance(data_model_raw, Mapping):
+                raise ValueError("POC data_model artifact must contain a JSON object")
             data_model, data_defaults = normalize_data_model(data_model_raw)
-            query_patterns, query_defaults = normalize_query_patterns(query_patterns_raw)
-            collection_names = {item["name"] for item in data_model["collections"]}
-            unknown = sorted({item["collection"] for item in query_patterns["patterns"]} - collection_names)
-            if unknown:
-                raise ValueError(f"Query patterns reference unknown collections: {', '.join(unknown)}")
-            data_model, index_defaults = apply_query_indexes(data_model, query_patterns)
             paths = store.list_project_paths(branch_info["head_sha"])
             code_version = next_seed_version(list(paths))
         except SharedStateError as error:
@@ -1077,15 +1062,7 @@ def build_agent() -> CompiledStateGraph:
                         "bytes": data_model_artifact.bytes,
                         "content": data_model,
                     },
-                    "query_patterns": {
-                        "path": shared.query_patterns.path,
-                        "commit_sha": shared.query_patterns.commit_sha,
-                        "url": shared.query_patterns.url,
-                        "sha256": query_artifact.sha256,
-                        "bytes": query_artifact.bytes,
-                        "content": query_patterns,
-                    },
-                    "defaults_applied": [*data_defaults, *query_defaults, *index_defaults],
+                    "defaults_applied": data_defaults,
                     **({"prior_seed": shared.prior_seed} if shared.prior_seed is not None else {}),
                 },
                 "workflow": {

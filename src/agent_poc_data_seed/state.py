@@ -32,7 +32,6 @@ class ResolvedSeedContext(TypedDict):
     branch_head_sha: str
     code_version: str
     data_model: dict[str, Any]
-    query_patterns: dict[str, Any]
     defaults_applied: list[str]
     prior_seed: NotRequired[dict[str, str]]
 

@@ -1,6 +1,6 @@
 {
   "name": "nishrao-poc-data-seed-validator",
-  "version": "1.0.6",
+  "version": "1.0.11",
   "private": true,
   "description": "Synchronous Lambda validator for generated MongoDB seed bundles",
   "type": "commonjs",

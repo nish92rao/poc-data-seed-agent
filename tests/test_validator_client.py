@@ -85,7 +85,6 @@ class ValidatorClientTests(unittest.TestCase):
             source_commit_sha="a" * 40,
             manifest_json="{}",
             schema_design_json='{"collections":[]}',
-            query_patterns_json='{"patterns":[]}',
             artifacts={"seed.js": "seed", "package.json": "{}", "SEED_README.md": "readme"},
             mongodb_uri="mongodb+srv://runtime-only.example.com",
         )
@@ -93,6 +92,7 @@ class ValidatorClientTests(unittest.TestCase):
         self.assertEqual(captured["url"], "https://validator.example.com/v1/validations/direct")
         self.assertEqual(captured["payload"]["source_commit_sha"], "a" * 40)
         self.assertEqual(captured["payload"]["artifacts"]["seed.js"], "seed")
+        self.assertNotIn("query_patterns_json", captured["payload"])
         self.assertNotIn("authorization", captured["headers"])
         expected_body = json.dumps(captured["payload"], separators=(",", ":"), sort_keys=True)
         self.assertEqual(

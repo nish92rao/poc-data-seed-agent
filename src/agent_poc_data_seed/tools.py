@@ -11,7 +11,7 @@ from agent_poc_data_seed.github_storage import (
     GitHubStoreError,
     build_project_seed_bundle_files,
 )
-from agent_poc_data_seed.shared_context import apply_query_indexes, normalize_data_model, normalize_query_patterns
+from agent_poc_data_seed.shared_context import normalize_data_model
 from agent_poc_data_seed.seed_contract import SeedContractError, validate_seed_bundle_text
 from agent_poc_data_seed.validator_client import SeedValidatorClient, ValidatorClientError
 
@@ -63,12 +63,11 @@ def register(app: App) -> None:
         branch: str = "",
         path: str = "",
         spec_version: str = "",
-        query_patterns_commit_sha: str = "",
     ) -> str:
-        """Read data_model or query_patterns from an exact GitHub commit."""
-        filenames = {"schema_design": "schema_design.json", "data_model": "data_model.json", "query_patterns": "query_patterns.json"}
+        """Read the data model from an exact GitHub commit."""
+        filenames = {"schema_design": "schema_design.json", "data_model": "data_model.json"}
         if artifact not in filenames:
-            raise ValueError("artifact must be data_model or query_patterns")
+            raise ValueError("artifact must be data_model")
         try:
             result = (
                 _github_store().read_project_file(path, source_commit_sha)
@@ -83,16 +82,6 @@ def register(app: App) -> None:
             raise ValueError(f"{artifact} is not valid JSON") from error
         if artifact == "data_model":
             content, defaults = normalize_data_model(content)
-            if branch and query_patterns_commit_sha:
-                query_artifact = _github_store().read_project_file(
-                    "spec_architect/query_patterns.json",
-                    query_patterns_commit_sha,
-                )
-                normalized_queries, query_defaults = normalize_query_patterns(json.loads(query_artifact.content))
-                content, index_defaults = apply_query_indexes(content, normalized_queries)
-                defaults = [*defaults, *query_defaults, *index_defaults]
-        elif artifact == "query_patterns" and branch:
-            content, defaults = normalize_query_patterns(content)
         else:
             defaults = []
         return json.dumps(
@@ -122,7 +111,6 @@ def register(app: App) -> None:
         spec_commit_sha: str = "",
         branch: str = "",
         data_model_commit_sha: str = "",
-        query_patterns_commit_sha: str = "",
         defaults_json: str = "[]",
         repair_notes: str = "",
         repair_json: str = "",
@@ -147,7 +135,6 @@ def register(app: App) -> None:
             store = _github_store()
             if branch:
                 data_model = store.read_project_file("spec_architect/data_model.json", data_model_commit_sha)
-                query = store.read_project_file("spec_architect/query_patterns.json", query_patterns_commit_sha)
                 defaults = json.loads(defaults_json)
                 if not isinstance(defaults, list) or not all(isinstance(item, str) for item in defaults):
                     raise ValueError("defaults_json must be an array of strings")
@@ -160,7 +147,6 @@ def register(app: App) -> None:
                     package_json=package_json,
                     seed_readme=seed_readme,
                     data_model_input={"key": data_model.path, "sha256": data_model.sha256, "commit_sha": data_model.commit_sha},
-                    query_patterns_input={"key": query.path, "sha256": query.sha256, "commit_sha": query.commit_sha},
                     correlation=_correlation(poc_id, run_id, task_id, trace_id),
                     defaults_applied=defaults,
                     repair_notes=repair_notes or None,
@@ -185,11 +171,6 @@ def register(app: App) -> None:
                 f"pocs/{poc_id}/spec/{spec_version}/schema_design.json",
                 spec_commit_sha,
             )
-            query = store.read_file(
-                poc_id,
-                f"pocs/{poc_id}/spec/{spec_version}/query_patterns.json",
-                spec_commit_sha,
-            )
             result = store.commit_seed_bundle(
                 poc_id=poc_id,
                 spec_version=spec_version,
@@ -198,7 +179,6 @@ def register(app: App) -> None:
                 package_json=package_json,
                 seed_readme=seed_readme,
                 schema_input={"key": schema.path, "sha256": schema.sha256},
-                query_patterns_input={"key": query.path, "sha256": query.sha256},
                 correlation=_correlation(poc_id, run_id, task_id, trace_id),
                 repair_notes=repair_notes or None,
                 repair=repair,
@@ -294,20 +274,13 @@ def register(app: App) -> None:
             )
             if branch:
                 data_input = bundle.manifest["inputs"]["data_model"]
-                query_input = bundle.manifest["inputs"]["query_patterns"]
                 data_model = store.read_project_file(data_input["key"], data_input["commit_sha"])
-                query = store.read_project_file(query_input["key"], query_input["commit_sha"])
                 normalized_data, _ = normalize_data_model(json.loads(data_model.content))
-                normalized_query, _ = normalize_query_patterns(json.loads(query.content))
-                normalized_data, _ = apply_query_indexes(normalized_data, normalized_query)
                 prefix = f"seed/{code_version}/"
             else:
                 schema_path = f"pocs/{poc_id}/spec/{spec_version}/schema_design.json"
-                query_path = f"pocs/{poc_id}/spec/{spec_version}/query_patterns.json"
                 data_model = store.read_file(poc_id, schema_path, source_commit_sha)
-                query = store.read_file(poc_id, query_path, source_commit_sha)
                 normalized_data = json.loads(data_model.content)
-                normalized_query = json.loads(query.content)
                 prefix = f"pocs/{poc_id}/code/{code_version}/seed/"
             artifacts = {
                 path.removeprefix(prefix): content
@@ -329,8 +302,6 @@ def register(app: App) -> None:
                     schema_design_json=data_model.content if not branch else "",
                     data_model_json=data_model.content if branch else "",
                     normalized_data_model_json=json.dumps(normalized_data, separators=(",", ":")) if branch else "",
-                    query_patterns_json=query.content,
-                    normalized_query_patterns_json=json.dumps(normalized_query, separators=(",", ":")) if branch else "",
                     artifacts=artifacts,
                     mongodb_uri=mongodb_uri,
                 )

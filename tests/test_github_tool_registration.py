@@ -34,13 +34,12 @@ class GitHubToolRegistrationTests(unittest.TestCase):
         expected = {
             "read_seed_input_from_github_tool": (
                 "poc_id", "source_commit_sha", "artifact", "branch", "path", "spec_version",
-                "query_patterns_commit_sha",
             ),
             "commit_seed_bundle_to_github_tool": (
                 "poc_id", "run_id", "task_id", "trace_id", "spec_version", "code_version",
                 "seed_js", "package_json", "seed_readme", "expected_head_sha",
                 "spec_commit_sha", "branch", "data_model_commit_sha",
-                "query_patterns_commit_sha", "defaults_json", "repair_notes", "repair_json",
+                "defaults_json", "repair_notes", "repair_json",
             ),
             "read_seed_repair_source_from_github_tool": (
                 "poc_id", "spec_version", "previous_code_version", "source_commit_sha", "branch",

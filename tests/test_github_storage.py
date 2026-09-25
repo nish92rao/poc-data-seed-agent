@@ -106,7 +106,6 @@ class GitHubStorageTests(unittest.TestCase):
             package_json="{}",
             seed_readme="readme",
             schema_input={"key": "pocs/poc_123/spec/v001/schema_design.json", "sha256": "a" * 64},
-            query_patterns_input={"key": "pocs/poc_123/spec/v001/query_patterns.json", "sha256": "b" * 64},
             correlation={"poc_id": "poc_123", "run_id": "run_1", "task_id": "task_1", "trace_id": "trace_1", "producer": "poc-data-seed"},
             repair_notes="notes" if repair else None,
             repair={"kind": "repair", "previous_code_version": "v001"} if repair else None,
@@ -207,7 +206,7 @@ class GitHubStorageTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 GitHubRepoStore._safe_project_path(path)
 
-    def test_builds_top_level_project_bundle_with_separate_input_commits(self) -> None:
+    def test_builds_top_level_project_bundle_with_only_data_model_input(self) -> None:
         files = build_project_seed_bundle_files(
             repository="owner/repo",
             branch="owner/project",
@@ -217,7 +216,6 @@ class GitHubStorageTests(unittest.TestCase):
             package_json="{}",
             seed_readme="readme",
             data_model_input={"key": "spec_architect/data_model.json", "sha256": "a" * 64, "commit_sha": "b" * 40},
-            query_patterns_input={"key": "spec_architect/query_patterns.json", "sha256": "c" * 64, "commit_sha": "d" * 40},
             correlation={"poc_id": "1790237138344", "run_id": "run_1", "task_id": "task_1", "trace_id": "trace_1", "producer": "poc-data-seed"},
             defaults_applied=["tickets: seed count 20"],
         )
@@ -230,7 +228,7 @@ class GitHubStorageTests(unittest.TestCase):
         manifest = json.loads(files["seed/v001/seed.manifest.json"])
         self.assertEqual(manifest["storage"]["branch"], "owner/project")
         self.assertEqual(manifest["inputs"]["data_model"]["commit_sha"], "b" * 40)
-        self.assertEqual(manifest["inputs"]["query_patterns"]["commit_sha"], "d" * 40)
+        self.assertEqual(set(manifest["inputs"]), {"data_model"})
         self.assertEqual(manifest["defaults_applied"], ["tickets: seed count 20"])
 
     def test_read_bundle_rejects_wrong_storage_and_input_identity(self) -> None:
@@ -286,7 +284,6 @@ class GitHubStorageTests(unittest.TestCase):
                 package_json="{}",
                 seed_readme="readme",
                 schema_input={"key": "pocs/poc_123/spec/v001/schema_design.json", "sha256": "a" * 64},
-                query_patterns_input={"key": "pocs/poc_123/spec/v001/query_patterns.json", "sha256": "b" * 64},
                 correlation={"poc_id": "poc_123", "run_id": "run_1", "task_id": "task_1", "trace_id": "trace_1", "producer": "poc-data-seed"},
                 repair_notes="notes",
             )

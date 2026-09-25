@@ -8,7 +8,7 @@ Magenta Data Seeding Agent for the POC Builder platform. The Coding Orchestrator
 Coding Orchestrator
   -> AgentEnvelope { request: { poc_id } }
   -> shared MongoDB lookup by pov_id
-  -> exact GitHub data_model/query_patterns reads
+  -> exact GitHub data_model read
   -> LLM generation with graph-owned tool arguments
   -> atomic seed/vNNN GitHub commit
   -> signed Lambda validation against a disposable database
@@ -21,12 +21,11 @@ The LLM never chooses the repository, branch, source commits, output version, wr
 
 ## GitHub Layout
 
-The repository is fixed by `GITHUB_REPO`. The branch is derived from the two validated GitHub blob URLs in shared state; both inputs must use the same branch and the configured repository.
+The repository is fixed by `GITHUB_REPO`. The branch is derived only from the validated data-model GitHub blob URL in shared state.
 
 ```text
 spec_architect/
   data_model.json
-  query_patterns.json
 
 seed/
   v001/
@@ -75,17 +74,12 @@ Required input shape:
       "path": "spec_architect/data_model.json",
       "commit_sha": "<40-character SHA>",
       "url": "https://github.com/owner/repo/blob/branch/spec_architect/data_model.json"
-    },
-    "query_patterns": {
-      "path": "spec_architect/query_patterns.json",
-      "commit_sha": "<40-character SHA>",
-      "url": "https://github.com/owner/repo/blob/branch/spec_architect/query_patterns.json"
     }
   }
 }
 ```
 
-The agent projects only `pov_id` and `spec_artifacts`; unrelated shared-state fields are neither sent to the LLM nor returned to callers. Input paths, repositories, branches, and commit SHAs are strictly validated. Each input may use a different exact source commit.
+The agent consumes only `pov_id`, `spec_artifacts.data_model`, and the prior seed pointer. Query-pattern metadata is ignored regardless of whether it is present, absent, malformed, stale, or cross-repository. The data-model path, repository, branch, and commit SHA are strictly validated.
 
 After complete success, the agent compare-and-set updates only `spec_artifacts.seed` and `updated_at`:
 
@@ -101,7 +95,7 @@ After complete success, the agent compare-and-set updates only `spec_artifacts.s
 }
 ```
 
-The compare-and-set filter includes the exact input references and prior seed pointer loaded at run start. Concurrent upstream changes return `SHARED_STATE_CONFLICT` instead of overwriting newer state. Any generation, validation, GitHub read-back, report, cleanup, or MongoDB publication failure leaves the shared seed pointer unchanged. A GitHub version created before final publication failure remains an immutable orphan and the next invocation consumes a new version.
+The compare-and-set filter includes the exact data-model reference and prior seed pointer loaded at run start. Query-pattern changes do not affect publication. Concurrent data-model or seed-pointer changes return `SHARED_STATE_CONFLICT` instead of overwriting newer state. Any generation, validation, GitHub read-back, report, cleanup, or MongoDB publication failure leaves the shared seed pointer unchanged. A GitHub version created before final publication failure remains an immutable orphan and the next invocation consumes a new version.
 
 Bootstrap the sample POC inputs once with:
 
@@ -112,7 +106,7 @@ set +a
 .venv/bin/python scripts/bootstrap-shared-poc.py 1790237138344
 ```
 
-The bootstrap command enforces the unique `pov_id` index, creates the shared-state branch when absent, atomically commits `resources/data_model.json` and `resources/query_patterns.json`, performs exact GitHub read-back, compare-and-set updates only the two input references, and verifies MongoDB read-back. It does not modify the local source inputs.
+The bootstrap command enforces the unique `pov_id` index, creates the shared-state branch when absent, atomically commits `resources/data_model.json`, performs exact GitHub read-back, compare-and-set updates only the data-model reference, and verifies MongoDB read-back. It does not modify the local source input.
 
 ## Request Envelope
 
@@ -170,7 +164,10 @@ Successful responses follow the platform envelope:
         "seed_summary": {"collection": 1},
         "query_validation": {
           "runtime_executed": 7,
-          "static_vector_validated": 1
+          "read_operations_executed": 6,
+          "write_operations_executed": 1,
+          "static_vector_validated": 1,
+          "static_search_validated": 1
         },
         "search_index_validation": {
           "created": [{"collection": "collection", "name": "index_name"}]
@@ -210,15 +207,15 @@ Failure responses use `status: failed`, keep safe correlation/version/timeline d
 
 Production consumes Draft Agent `data_model.json`, not the historical `schema_design.json` contract. The adapter:
 
-- converts `document_shape` maps to canonical field records;
-- preserves types, required flags, nested definitions, relationships, descriptions, examples, and enums;
+- accepts legacy `document_shape` maps and recursive `fields` arrays, converting both to canonical field records;
+- preserves and canonicalizes types, required flags, nested definitions, descriptions, examples, and enums;
+- ignores relationship metadata regardless of shape or spelling;
+- converts canonical and Draft-style regular indexes;
 - applies a deterministic capped seed-count default where omitted;
-- derives relationship and ordinary query indexes only for known source fields;
-- rejects unknown collections/fields and contradictory relationships;
-- converts keyed `QP-*` query objects into canonical patterns;
+- uses only ordinary indexes explicitly declared by the data model;
 - records every applied default in `seed.manifest.json` and `SEED_README.md`.
 
-For `$vectorSearch`, the agent uses a documented deterministic synthetic-vector dimension when the Draft Agent omitted dimensions. Ordinary queries execute during validation. Vector query contracts are statically validated because Atlas Search index readiness is asynchronous.
+`query_patterns.json` is outside the seed contract. It is not required, read, normalized, hashed, executed, or included in publication CAS.
 
 ## Seed Script Contract
 
@@ -226,11 +223,10 @@ Generated `seed.js` targets Node.js 20 and the official `mongodb` driver. It mus
 
 - read `MONGODB_URI`, `DB_NAME`, `SEED_MAX_DOCS`, `SEED_COLLECTION_CAPS`, and optional validation-only `SEED_SKIP_SEARCH_INDEXES`;
 - obey independent per-collection caps and the total document budget;
-- deterministically recreate POC collections, values, ObjectIds, and synthetic vectors;
-- create every declared ordinary index and relationship;
-- declare the matching Atlas Vector Search index where required;
-- guard generated search-index creation when `SEED_SKIP_SEARCH_INDEXES=1`;
-- support every normalized query pattern;
+- deterministically recreate POC collections, values, and ObjectIds;
+- create every ordinary index explicitly declared by the data model;
+- include every required field with its declared type; optional fields may be absent or null, but non-null values must match their declared type;
+- ignore relationship metadata;
 - print exactly one final JSON line: `{"seed_summary":{"collection":1}}`;
 - exit non-zero on failure.
 
@@ -241,13 +237,13 @@ Generated `seed.js` targets Node.js 20 and the official `mongodb` driver. It mus
 The normal lifecycle is:
 
 1. Normalize the request and load the POC by exact `pov_id`.
-2. Validate shared-state references and read exact GitHub input commits.
-3. Normalize and cross-check the data model and query patterns.
+2. Validate the shared-state data-model reference and read its exact GitHub commit.
+3. Normalize and cross-check only the data model.
 4. Allocate the next unused `seed/vNNN`.
 5. Generate and preflight the complete bundle.
 6. Atomically commit the bundle and manifest.
 7. Reread and hash-verify the exact bundle commit.
-8. Send original input bytes, normalized execution structures, manifest, and artifacts to `POST /v1/validations/direct`.
+8. Send original data-model bytes, normalized data model, manifest, and artifacts to `POST /v1/validations/direct`.
 9. Validate in a capped run-scoped database.
 10. Commit `seed/vNNN/validation/{run_id}/report.json`.
 11. On success, verify bundle/report commits and compare-and-set publish shared state.
@@ -264,10 +260,8 @@ Validation includes:
 
 - package, syntax, AST security, size, secret, hash, byte-count, manifest, storage, input, and correlation checks;
 - capped deterministic seed execution and exact `seed_summary` verification;
-- ordinary index, relationship, and query-pattern execution;
-- static vector contract verification;
-- temporary Atlas Vector Search index creation and discovery by Lambda;
-- explicit deletion of each declared temporary search index;
+- ordinary indexes plus recursive required/optional field presence, enum, and BSON type validation;
+- zeroed query-validation and search-index result fields for response compatibility;
 - disposable validation database deletion in `finally`.
 
 Collection caps are:
@@ -284,7 +278,7 @@ The total `SEED_MAX_DOCS` is the sum of independent collection caps. Search-inde
 
 - `poc_id`, `code_version`, and producer;
 - GitHub repository and branch;
-- original `data_model` and `query_patterns` path, source commit SHA, and SHA-256;
+- original `data_model` path, source commit SHA, and SHA-256;
 - generated artifact path, SHA-256, and byte count;
 - deterministic defaults applied during normalization;
 - `poc_id`, `run_id`, `task_id`, `trace_id`, and producer correlation;
@@ -391,7 +385,7 @@ INTEGRATION_MONGODB_URI='mongodb://127.0.0.1:27017/?directConnection=true' \
   scripts/test-integration.sh
 ```
 
-The integration runner requires `INTEGRATION_MONGODB_URI`, installs locked golden Node dependencies, uses a unique disposable database, validates counts/indexes/relationships/queries, reruns deterministically, and enforces the 60-second capped-validation target. Set `ALLOW_NONLOCAL_INTEGRATION_MONGODB=1` only for an intentional non-local endpoint.
+The integration runner requires `INTEGRATION_MONGODB_URI`, installs locked golden Node dependencies, uses a unique disposable database, validates counts, explicit indexes, recursive field presence/types, reruns deterministically, and enforces the 60-second capped-validation target. Set `ALLOW_NONLOCAL_INTEGRATION_MONGODB=1` only for an intentional non-local endpoint.
 
 Combined local checks:
 
@@ -426,7 +420,7 @@ There is intentionally no hosted CI workflow. These scripts are portable CI entr
 
 ## Lambda Deployment
 
-The current deployment script provisions image-based Lambda validator `1.0.6` in `ap-south-1`. Review the resource prefix, region, tags, expiry, and image tag at the top of `resources/aws/start-seed-validator.sh` before staging or production use.
+The deployment script targets image-based Lambda validator `1.0.11` in `ap-south-1`. Review the resource prefix, region, tags, expiry, and image tag at the top of `resources/aws/start-seed-validator.sh` before staging or production use.
 
 From AWS CloudShell, place `resources/aws/start-seed-validator.sh` beside `resources/validator/`, then run:
 

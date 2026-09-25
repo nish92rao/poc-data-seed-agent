@@ -370,7 +370,6 @@ class GitHubRepoStore:
             or storage != {"provider": "github", "repository": self._config.repository, "branch": safe_branch}
             or not isinstance(inputs, Mapping)
             or inputs.get("data_model", {}).get("key") != "spec_architect/data_model.json"
-            or inputs.get("query_patterns", {}).get("key") != "spec_architect/query_patterns.json"
         ):
             raise GitHubStoreError("GITHUB_MANIFEST_INVALID", "GitHub seed manifest identity is invalid.", retryable=False)
         expected_names = {"seed.js", "package.json", "SEED_README.md"}
@@ -511,7 +510,6 @@ class GitHubRepoStore:
         package_json: str,
         seed_readme: str,
         schema_input: Mapping[str, str],
-        query_patterns_input: Mapping[str, str],
         correlation: Mapping[str, str],
         repair_notes: str | None = None,
         repair: Mapping[str, str] | None = None,
@@ -527,7 +525,6 @@ class GitHubRepoStore:
             package_json=package_json,
             seed_readme=seed_readme,
             schema_input=schema_input,
-            query_patterns_input=query_patterns_input,
             correlation=correlation,
             repair_notes=repair_notes,
             repair=repair,
@@ -573,21 +570,16 @@ class GitHubRepoStore:
         }:
             raise GitHubStoreError("GITHUB_MANIFEST_INVALID", "GitHub seed manifest storage identity is invalid.", retryable=False)
         inputs = manifest.get("inputs")
-        expected_inputs = {
-            "schema_design": f"pocs/{poc_id}/spec/{spec_version}/schema_design.json",
-            "query_patterns": f"pocs/{poc_id}/spec/{spec_version}/query_patterns.json",
-        }
-        if not isinstance(inputs, Mapping) or set(inputs) != set(expected_inputs):
+        if not isinstance(inputs, Mapping):
             raise GitHubStoreError("GITHUB_MANIFEST_INVALID", "GitHub seed manifest inputs are invalid.", retryable=False)
-        for name, expected_path in expected_inputs.items():
-            entry = inputs.get(name)
-            if (
-                not isinstance(entry, Mapping)
-                or entry.get("key") != expected_path
-                or not isinstance(entry.get("sha256"), str)
-                or not _SHA256_PATTERN.fullmatch(entry["sha256"])
-            ):
-                raise GitHubStoreError("GITHUB_MANIFEST_INVALID", "GitHub seed manifest input identity is invalid.", retryable=False)
+        entry = inputs.get("schema_design")
+        if (
+            not isinstance(entry, Mapping)
+            or entry.get("key") != f"pocs/{poc_id}/spec/{spec_version}/schema_design.json"
+            or not isinstance(entry.get("sha256"), str)
+            or not _SHA256_PATTERN.fullmatch(entry["sha256"])
+        ):
+            raise GitHubStoreError("GITHUB_MANIFEST_INVALID", "GitHub seed manifest input identity is invalid.", retryable=False)
         entries = manifest.get("artifacts")
         expected_names = {"seed.js", "package.json", "SEED_README.md"}
         if manifest.get("repair"):
@@ -735,7 +727,6 @@ def build_seed_bundle_files(
     package_json: str,
     seed_readme: str,
     schema_input: Mapping[str, str],
-    query_patterns_input: Mapping[str, str],
     correlation: Mapping[str, str],
     repair_notes: str | None = None,
     repair: Mapping[str, str] | None = None,
@@ -748,11 +739,10 @@ def build_seed_bundle_files(
     if set(correlation) != required_correlation or correlation.get("poc_id") != poc_id:
         raise ValueError("correlation must contain matching poc_id, run_id, task_id, trace_id, and producer")
     expected_schema_path = f"pocs/{poc_id}/spec/{spec_version}/schema_design.json"
-    expected_query_path = f"pocs/{poc_id}/spec/{spec_version}/query_patterns.json"
-    if schema_input.get("key") != expected_schema_path or query_patterns_input.get("key") != expected_query_path:
-        raise ValueError("seed manifest inputs must use canonical GitHub paths")
-    if not _SHA256_PATTERN.fullmatch(str(schema_input.get("sha256", ""))) or not _SHA256_PATTERN.fullmatch(str(query_patterns_input.get("sha256", ""))):
-        raise ValueError("seed manifest inputs require lowercase SHA-256 digests")
+    if schema_input.get("key") != expected_schema_path:
+        raise ValueError("seed manifest input must use the canonical schema path")
+    if not _SHA256_PATTERN.fullmatch(str(schema_input.get("sha256", ""))):
+        raise ValueError("seed manifest input requires a lowercase SHA-256 digest")
     prefix = f"pocs/{poc_id}/code/{code_version}/seed"
     files = {
         f"{prefix}/seed.js": seed_js,
@@ -772,7 +762,7 @@ def build_seed_bundle_files(
         "spec_version": spec_version,
         "code_version": code_version,
         "storage": {"provider": "github", "repository": repository, "branch": GitHubRepoStore.branch_for_poc(poc_id)},
-        "inputs": {"schema_design": dict(schema_input), "query_patterns": dict(query_patterns_input)},
+        "inputs": {"schema_design": dict(schema_input)},
         "artifacts": artifacts,
         "correlation": dict(correlation),
         "producer": "poc-data-seed",
@@ -793,7 +783,6 @@ def build_project_seed_bundle_files(
     package_json: str,
     seed_readme: str,
     data_model_input: Mapping[str, Any],
-    query_patterns_input: Mapping[str, Any],
     correlation: Mapping[str, str],
     defaults_applied: list[str],
     repair_notes: str | None = None,
@@ -805,16 +794,12 @@ def build_project_seed_bundle_files(
     required_correlation = {"poc_id", "run_id", "task_id", "trace_id", "producer"}
     if set(correlation) != required_correlation or correlation.get("poc_id") != poc_id:
         raise ValueError("correlation must contain matching poc_id, run_id, task_id, trace_id, and producer")
-    inputs = {"data_model": dict(data_model_input), "query_patterns": dict(query_patterns_input)}
-    for name, expected_path in {
-        "data_model": "spec_architect/data_model.json",
-        "query_patterns": "spec_architect/query_patterns.json",
-    }.items():
-        item = inputs[name]
-        if item.get("key") != expected_path or not _SHA256_PATTERN.fullmatch(str(item.get("sha256", ""))):
-            raise ValueError("seed manifest inputs must use canonical paths and SHA-256 digests")
-        if not _COMMIT_SHA_PATTERN.fullmatch(str(item.get("commit_sha", ""))):
-            raise ValueError("seed manifest inputs require exact commit SHAs")
+    inputs = {"data_model": dict(data_model_input)}
+    item = inputs["data_model"]
+    if item.get("key") != "spec_architect/data_model.json" or not _SHA256_PATTERN.fullmatch(str(item.get("sha256", ""))):
+        raise ValueError("seed manifest data_model must use its canonical path and SHA-256 digest")
+    if not _COMMIT_SHA_PATTERN.fullmatch(str(item.get("commit_sha", ""))):
+        raise ValueError("seed manifest data_model requires an exact commit SHA")
     prefix = f"seed/{code_version}"
     files = {
         f"{prefix}/seed.js": seed_js,

@@ -4,6 +4,7 @@ Date: 2026-09-25
 Component: `poc-data-seed`
 Application version: `0.1.0`
 Deployed validator image: `1.0.6`
+Next validator image: `1.0.11` (implemented and locally verified; deployment pending)
 Status: implementation and acceptance complete
 
 ## Executive Summary
@@ -31,7 +32,7 @@ Evidence:
 
 ### Shared-State Resolution And Publication
 
-The agent loads one document by exact `pov_id` from the configured shared-state collection. It consumes only `spec_artifacts.data_model`, `spec_artifacts.query_patterns`, and the prior `spec_artifacts.seed` pointer. Duplicate POC documents, malformed references, cross-repository URLs, path traversal, mixed branches, and unavailable MongoDB are rejected before LLM generation.
+The agent loads one document by exact `pov_id` from the configured shared-state collection. It consumes only `spec_artifacts.data_model` and the prior `spec_artifacts.seed` pointer. Query-pattern metadata is ignored. Duplicate POC documents, malformed data-model references, cross-repository URLs, path traversal, and unavailable MongoDB are rejected before LLM generation.
 
 On complete success, the agent compare-and-set updates only:
 
@@ -40,7 +41,7 @@ spec_artifacts.seed
 updated_at
 ```
 
-The compare-and-set filter binds the exact two source artifact objects and the prior seed pointer or its absence. Concurrent upstream changes cannot be overwritten.
+The compare-and-set filter binds the exact data-model artifact object and the prior seed pointer or its absence. Query-pattern changes do not block publication. Concurrent authoritative changes cannot be overwritten.
 
 Owners:
 
@@ -67,12 +68,11 @@ Evidence:
 
 ### GitHub Storage And Immutable Layout
 
-The repository is fixed by `GITHUB_REPO`; the project branch is validated from the two shared-state input URLs. Inputs are read from their own exact commits. Outputs are confined to `seed/vNNN/` and reports to the run-scoped validation subdirectory.
+The repository is fixed by `GITHUB_REPO`; the project branch is validated from the data-model URL. The data model is read from its exact commit. Outputs are confined to `seed/vNNN/` and reports to the run-scoped validation subdirectory.
 
 ```text
 spec_architect/
   data_model.json
-  query_patterns.json
 
 seed/vNNN/
   seed.js
@@ -102,16 +102,13 @@ Evidence:
 
 ### Draft Artifact Normalization
 
-Production consumes `data_model.json` and `query_patterns.json` from `spec_architect/`. The normalizer converts Draft Agent structures into a deterministic internal contract:
+Production consumes only `data_model.json` from `spec_architect/`. The normalizer converts Draft Agent structures into a deterministic internal contract:
 
 - `document_shape` maps become canonical field records;
-- relationships are checked against known collections;
+- relationship metadata is ignored regardless of dialect;
 - omitted seed counts receive documented deterministic defaults;
-- relationship and ordinary query indexes are derived only from known source fields;
-- computed aggregation outputs are not treated as source indexes;
-- keyed `QP-*` objects become canonical find/aggregate patterns;
-- unknown collections, fields, impossible operations, and contradictory relationships fail as request contradictions;
-- vector patterns receive deterministic synthetic-vector metadata when dimensions were omitted.
+- only explicit ordinary indexes are retained;
+- field types and required flags are canonicalized for recursive runtime validation.
 
 Every applied default is recorded in `seed.manifest.json` and `SEED_README.md`.
 
@@ -123,7 +120,7 @@ Owners:
 Evidence:
 
 - `tests/test_shared_context.py`
-- Final accepted POC normalized three collections and eight query patterns.
+- Query-pattern presence and contents do not affect normalization.
 
 ### Seed Generation Security Contract
 
@@ -151,10 +148,8 @@ Validation covers:
 - package and JavaScript syntax/security policy;
 - deterministic capped execution in a run-scoped database;
 - seed summary and cap agreement;
-- ordinary indexes, relationships, and seven ordinary query patterns;
-- static validation of one vector query contract;
-- temporary Atlas Vector Search index creation and discovery;
-- explicit temporary search-index deletion;
+- explicit ordinary indexes and recursive required/optional field, enum, nested schema, and BSON type validation;
+- zeroed query/search validation fields for response compatibility;
 - run-scoped database deletion in `finally`.
 
 Owners:
@@ -170,6 +165,8 @@ Evidence:
 - Real-cluster create/list/drop search-index lifecycle passed.
 - Final response reported `runtime_executed: 7`, `static_vector_validated: 1`, and the expected temporary vector index.
 - Independent post-run check found no run-scoped validation database.
+
+Validator `1.0.11` establishes the field-only data-model contract while preserving exact source bytes and commits. Query patterns and relationship metadata are ignored. Runtime validation covers generated-code security, package/syntax, seed caps/summary, explicit data-model indexes, required/optional field presence, nullability, enums, nested schemas, BSON types, and mandatory cleanup. Cloud deployment is pending.
 
 ### HMAC And Endpoint Controls
 
@@ -297,7 +294,7 @@ Reference: `resources/POC_Builder_High_Level_Specification.md`.
 | Original specification | Final implementation | Reason |
 |---|---|---|
 | S3 versioned asset layout and pre-signed URLs | GitHub exact-commit storage; no S3/PAR path | Atomic multi-file commits, immutable audit history, exact-SHA reads, and removal of presigned URL exposure. |
-| `schema_design.json` input | `spec_architect/data_model.json` plus `query_patterns.json` | Matches final Draft Agent artifact contract and shared-state document. |
+| `schema_design.json` input | `spec_architect/data_model.json` only | Data model is the sole authoritative seed-generation and validation input. |
 | Artifacts under `pocs/{poc_id}/code/vNNN/seed/` | Artifacts under branch-local `seed/vNNN/` | The POC is isolated by validated project branch; downstream agents use shared-state pointer plus exact commit SHA. |
 | `poc_id`-keyed `pocs` document | Exact lookup by string `pov_id` | Matches the actual shared platform document inserted for integration. Numeric strings and prefixed ULIDs are supported. |
 | Rich agent request including versions, mode, paths, and repair context | Only `request.poc_id` is required | Shared state and GitHub are authoritative; graph-owned normalization prevents caller/model identity drift. |
@@ -314,7 +311,7 @@ Reference: `resources/POC_Builder_High_Level_Specification.md`.
 ### Coding Orchestrator / Platform
 
 - Create and own the POC document, unique `pov_id`, approvals, status, run/task records, and broader platform state.
-- Produce and approve `data_model.json` and `query_patterns.json` and write exact GitHub references into shared state.
+- Produce and approve `data_model.json` and write its exact GitHub reference into shared state. Query patterns are outside this agent's contract.
 - Invoke this agent with at least `request.poc_id` and stop downstream progression on `response.status != "succeeded"`.
 - Persist platform-level run/task outcomes and expose them to user-facing services.
 - Coordinate API and frontend generation and assemble the complete deployable code bundle.
@@ -337,7 +334,7 @@ Reference: `resources/POC_Builder_High_Level_Specification.md`.
 ### Draft Agent
 
 - Produce coherent data-model and query-pattern artifacts.
-- Avoid contradictory collection/field/relationship references.
+- Provide complete field names, types, required flags, nested schemas, and enums; relationship metadata is ignored by this agent.
 - Prefer explicit seed counts, indexes, and vector dimensions; deterministic defaults exist only to keep valid but incomplete POV metadata executable.
 
 ## Migration And Compatibility Decisions

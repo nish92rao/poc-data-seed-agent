@@ -7,7 +7,7 @@ const { join } = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
-const { MongoClient } = require("mongodb");
+const { Decimal128, Long, MongoClient, ObjectId } = require("mongodb");
 const {
   SIZE_LIMITS,
   validateDownloadedArtifacts,
@@ -182,29 +182,122 @@ function validateInputContract(schema, patterns) {
       throw requestContradiction(`Collection names must be unique: ${collection?.name || "missing name"}`);
     }
     collectionByName.set(collection.name, collection);
+    validateFieldDefinitions(collection.fields || [], collection.name);
   }
-  for (const collection of collections) {
-    const fieldRoots = new Set((collection.fields || []).map((field) => field.name?.split("[")[0].split(".")[0]));
-    const relationshipReferences = new Map();
-    for (const relationship of collection.relationships || []) {
-      const localRoot = relationship.field?.split("[")[0].split(".")[0];
-      const [targetCollection, targetField] = (relationship.references || "").split(".");
-      const target = collectionByName.get(targetCollection);
-      const targetFields = new Set((target?.fields || []).map((field) => field.name));
-      if (!localRoot || !fieldRoots.has(localRoot) || !target || !targetFields.has(targetField)) {
-        throw requestContradiction(`Invalid relationship ${collection.name}.${relationship.field || "missing field"}`);
-      }
-      const existingReference = relationshipReferences.get(relationship.field);
-      if (existingReference && existingReference !== relationship.references) {
-        throw requestContradiction(`Conflicting relationship declarations for ${collection.name}.${relationship.field}`);
-      }
-      relationshipReferences.set(relationship.field, relationship.references);
+}
+
+function validateFieldDefinitions(fields, context) {
+  if (!Array.isArray(fields) || fields.length === 0) throw requestContradiction(`Collection ${context} requires fields`);
+  const names = new Set();
+  for (const field of fields) {
+    if (!field || typeof field !== "object" || Array.isArray(field) || typeof field.name !== "string" || !field.name
+      || typeof field.type !== "string" || !field.type || names.has(field.name)
+      || (field.required !== undefined && typeof field.required !== "boolean")) {
+      throw requestContradiction(`Collection ${context} has an invalid field declaration`);
+    }
+    const canonical = canonicalFieldType(field.type);
+    const elementType = arrayElementType(canonical);
+    const supported = new Set(["objectId", "string", "boolean", "int", "long", "double", "number", "decimal", "date", "document", "mixed"]);
+    if (!(supported.has(canonical) || elementType && supported.has(elementType))) {
+      throw requestContradiction(`Collection ${context} field ${field.name} has an unsupported type`);
+    }
+    names.add(field.name);
+    if ((canonical === "document" || elementType === "document") && field.fields !== undefined) {
+      validateFieldDefinitions(field.fields, `${context}.${field.name}`);
     }
   }
-  for (const pattern of patterns.patterns || []) {
-    if (!collectionByName.has(pattern.collection)) {
-      throw requestContradiction(`Query pattern ${pattern.id || "unknown"} references unknown collection ${pattern.collection}`);
+}
+
+function canonicalFieldType(type) {
+  const lower = String(type).trim().toLowerCase().replaceAll("_", "-");
+  const aliases = {
+    objectid: "objectId", string: "string", bool: "boolean", boolean: "boolean",
+    int: "int", integer: "int", long: "long", double: "double", float: "double",
+    number: "number", decimal: "decimal", date: "date", datetime: "date",
+    object: "document", document: "document", mixed: "mixed",
+  };
+  if (lower.startsWith("array<") && lower.endsWith(">")) {
+    return `array<${canonicalFieldType(lower.slice(6, -1))}>`;
+  }
+  return aliases[lower.replaceAll("-", "")] || aliases[lower] || lower;
+}
+
+function arrayElementType(type) {
+  const canonical = canonicalFieldType(type);
+  return canonical.startsWith("array<") && canonical.endsWith(">") ? canonical.slice(6, -1) : null;
+}
+
+function fieldValue(document, name) {
+  if (Object.prototype.hasOwnProperty.call(document, name)) return { exists: true, value: document[name] };
+  let current = document;
+  for (const part of name.split(".")) {
+    if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, part)) {
+      return { exists: false, value: undefined };
     }
+    current = current[part];
+  }
+  return { exists: true, value: current };
+}
+
+function isPlainDocument(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && !(value instanceof Date) && !isBsonType(value, "ObjectId")
+    && !isBsonType(value, "Long") && !isBsonType(value, "Decimal128");
+}
+
+function isBsonType(value, name) {
+  return value?._bsontype === name
+    || name === "ObjectId" && value instanceof ObjectId
+    || name === "Long" && value instanceof Long
+    || name === "Decimal128" && value instanceof Decimal128;
+}
+
+function valueMatchesType(value, type) {
+  const canonical = canonicalFieldType(type);
+  const elementType = arrayElementType(canonical);
+  if (elementType) return Array.isArray(value) && value.every((item) => valueMatchesType(item, elementType));
+  if (canonical === "mixed") return true;
+  if (canonical === "objectId") return isBsonType(value, "ObjectId");
+  if (canonical === "string") return typeof value === "string";
+  if (canonical === "boolean") return typeof value === "boolean";
+  if (canonical === "int") return typeof value === "number" && Number.isSafeInteger(value);
+  if (canonical === "long") return isBsonType(value, "Long") || typeof value === "number" && Number.isSafeInteger(value);
+  if (canonical === "double" || canonical === "number") return typeof value === "number" && Number.isFinite(value);
+  if (canonical === "decimal") return isBsonType(value, "Decimal128") || typeof value === "number" && Number.isFinite(value);
+  if (canonical === "date") return value instanceof Date && !Number.isNaN(value.valueOf());
+  if (canonical === "document") return isPlainDocument(value);
+  return false;
+}
+
+function validateDocumentFields(document, fields, collectionName, prefix = "") {
+  for (const field of fields) {
+    const path = prefix ? `${prefix}.${field.name}` : field.name;
+    const found = fieldValue(document, field.name);
+    if (!found.exists || found.value === null) {
+      if (field.required) throw new Error(`Collection ${collectionName} field ${path} is required`);
+      continue;
+    }
+    if (!valueMatchesType(found.value, field.type)) {
+      throw new Error(`Collection ${collectionName} field ${path} requires ${field.type}`);
+    }
+    if (Array.isArray(field.fields) && field.fields.length) {
+      const elementType = arrayElementType(field.type);
+      if (elementType === "document") {
+        found.value.forEach((item, index) => validateDocumentFields(item, field.fields, collectionName, `${path}[${index}]`));
+      } else if (canonicalFieldType(field.type) === "document") {
+        validateDocumentFields(found.value, field.fields, collectionName, path);
+      }
+    }
+    if (Array.isArray(field.enum) && !field.enum.some((allowed) => Object.is(allowed, found.value))) {
+      throw new Error(`Collection ${collectionName} field ${path} is outside its enum`);
+    }
+  }
+}
+
+async function verifyFieldSchemas(db, schema) {
+  for (const collection of schema.collections) {
+    const documents = await db.collection(collection.name).find({}).toArray();
+    for (const document of documents) validateDocumentFields(document, collection.fields || [], collection.name);
   }
 }
 
@@ -260,10 +353,15 @@ function substitutePlaceholders(value, document, fieldName = "") {
   if (Array.isArray(value)) return value.map((entry) => substitutePlaceholders(entry, document, fieldName));
   if (!value || typeof value !== "object") {
     if (typeof value === "string" && value.startsWith("<") && value.endsWith(">")) {
+      const placeholder = value.slice(1, -1).toLowerCase();
+      const documentValue = fieldName.split(".").reduce((current, part) => current?.[part], document);
       if (value.includes("hour|day|week")) return "day";
-      if (value.includes("date")) return document[fieldName] instanceof Date ? document[fieldName] : new Date("2100-01-01T00:00:00Z");
-      if (value.includes("object_id")) return document[fieldName] || document._id;
-      return document[fieldName];
+      if (placeholder === "now" || placeholder.includes("date")) return documentValue instanceof Date ? documentValue : new Date("2100-01-01T00:00:00Z");
+      if (placeholder.includes("object_id") || placeholder.includes("document_id") || placeholder.includes("doc_id") || placeholder.endsWith("_id")) return documentValue || document._id;
+      if (placeholder.includes("embedding") || placeholder.includes("vector")) return documentValue || Array(8).fill(0);
+      if (placeholder.includes("score")) return typeof documentValue === "number" ? documentValue : 0.5;
+      if (placeholder.includes("top_k") || placeholder.includes("page_size") || placeholder.includes("candidate")) return typeof documentValue === "number" ? documentValue : 10;
+      return documentValue === undefined ? placeholder.replace(/^optional_/, "sample_") : documentValue;
     }
     return value;
   }
@@ -285,24 +383,11 @@ async function verifyIndexes(db, schema) {
   }
 }
 
-async function verifyRelationships(db, schema) {
-  for (const collection of schema.collections) {
-    for (const relationship of collection.relationships || []) {
-      const [targetCollection, targetField] = relationship.references.split(".");
-      const localField = relationship.field.replace("[]", "");
-      const missing = await db.collection(collection.name).aggregate([
-        { $unwind: { path: `$${localField.split(".")[0]}`, preserveNullAndEmptyArrays: false } },
-        { $lookup: { from: targetCollection, localField, foreignField: targetField, as: "reference" } },
-        { $match: { reference: { $eq: [] } } },
-        { $limit: 1 },
-      ]).toArray();
-      if (missing.length) throw new Error(`Broken relationship ${collection.name}.${relationship.field}`);
-    }
-  }
-}
-
 async function verifyQueryPatterns(db, patterns) {
   let staticVectorPatterns = 0;
+  let staticSearchPatterns = 0;
+  let readOperations = 0;
+  let writeOperations = 0;
   for (const pattern of patterns.patterns || []) {
     if (pattern.validation_mode === "static_vector") {
       const vectorStage = (pattern.pipeline || []).find((stage) => stage?.$vectorSearch)?.$vectorSearch;
@@ -313,30 +398,82 @@ async function verifyQueryPatterns(db, patterns) {
       staticVectorPatterns += 1;
       continue;
     }
+    if (pattern.validation_mode === "static_search") {
+      const searchStage = (pattern.pipeline || []).find((stage) => stage?.$search)?.$search;
+      if (!searchStage || typeof searchStage.index !== "string") {
+        throw new Error(`Query pattern ${pattern.id || pattern.description} has an invalid search contract`);
+      }
+      staticSearchPatterns += 1;
+      continue;
+    }
     try {
       const collection = db.collection(pattern.collection);
       const sample = await collection.findOne({});
       if (!sample) throw new Error("has no seed data");
       if (pattern.operation === "aggregate") {
         await collection.aggregate(substitutePlaceholders(pattern.pipeline || [], sample)).limit(1).toArray();
+        readOperations += 1;
+        continue;
+      }
+      if (pattern.operation === "aggregate_merge") {
+        const pipeline = substitutePlaceholders(pattern.pipeline || [], sample);
+        const merge = pipeline.at(-1)?.$merge;
+        const targetName = typeof merge === "string" ? merge : merge?.into;
+        await collection.aggregate(pipeline).toArray();
+        if (!await db.collection(targetName).findOne({})) throw new Error("aggregate_merge produced no target documents");
+        writeOperations += 1;
         continue;
       }
       const match = substitutePlaceholders(pattern.match || {}, sample);
+      if (pattern.operation === "findOne") {
+        const options = pattern.projection ? { projection: pattern.projection } : undefined;
+        await collection.findOne(match, options);
+        readOperations += 1;
+        continue;
+      }
+      if (pattern.operation === "insertOne") {
+        const document = substitutePlaceholders(pattern.document || {}, sample);
+        const result = await collection.insertOne(document);
+        if (!result?.acknowledged || result.insertedId === undefined) throw new Error("insertOne was not acknowledged");
+        const inserted = await collection.findOne({ _id: result.insertedId });
+        if (!inserted) throw new Error("insertOne result could not be read back");
+        writeOperations += 1;
+        continue;
+      }
       let cursor = collection.find(match);
+      if (pattern.projection) cursor = cursor.project(pattern.projection);
       if (pattern.sort) cursor = cursor.sort(pattern.sort);
-      await cursor.limit(pattern.limit || 1).toArray();
+      await cursor.limit(substitutePlaceholders(pattern.limit ?? 1, sample)).toArray();
+      readOperations += 1;
     } catch (error) {
       const failure = new Error(`Query pattern ${pattern.id || pattern.description} failed validation: ${sanitizeFailureMessage(error.message)}`);
       failure.failureClass = "IMPLEMENTATION_FAILURE";
       throw failure;
     }
   }
-  return { runtime_executed: (patterns.patterns || []).length - staticVectorPatterns, static_vector_validated: staticVectorPatterns };
+  return {
+    runtime_executed: readOperations + writeOperations,
+    read_operations_executed: readOperations,
+    write_operations_executed: writeOperations,
+    static_vector_validated: staticVectorPatterns,
+    static_search_validated: staticSearchPatterns,
+  };
 }
 
 function validateVectorSeedContract(seedScript, patterns) {
   const text = seedScript.toString("utf8");
   for (const pattern of patterns.patterns || []) {
+    if (pattern.validation_mode === "static_search") {
+      const search = (pattern.pipeline || []).find((stage) => stage?.$search)?.$search;
+      if (!search || !text.includes("createSearchIndex") || !text.includes("process.env.SEED_SKIP_SEARCH_INDEXES")
+        || !text.includes(search.index)) {
+        const error = new Error(`Query pattern ${pattern.id || "unknown"} requires a matching search index declaration`);
+        error.code = "SEED_SCRIPT_INVALID";
+        error.failureClass = "IMPLEMENTATION_FAILURE";
+        throw error;
+      }
+      continue;
+    }
     if (pattern.validation_mode !== "static_vector") continue;
     const vector = (pattern.pipeline || []).find((stage) => stage?.$vectorSearch)?.$vectorSearch;
     if (!vector || !text.includes("createSearchIndex") || !text.includes("process.env.SEED_SKIP_SEARCH_INDEXES") || !text.includes(vector.index)
@@ -369,8 +506,8 @@ function parseDirectValidation(request) {
   }
   const projectLayout = typeof request.data_model_json === "string";
   const requiredStrings = projectLayout
-    ? ["manifest_json", "data_model_json", "normalized_data_model_json", "query_patterns_json", "normalized_query_patterns_json"]
-    : ["manifest_json", "schema_design_json", "query_patterns_json"];
+    ? ["manifest_json", "data_model_json", "normalized_data_model_json"]
+    : ["manifest_json", "schema_design_json"];
   if (requiredStrings.some((field) => typeof request[field] !== "string")) {
     throw new Error("Direct validation requires exact JSON file contents");
   }
@@ -379,7 +516,6 @@ function parseDirectValidation(request) {
   }
   const manifestContent = Buffer.from(request.manifest_json, "utf8");
   const schemaContent = Buffer.from(projectLayout ? request.data_model_json : request.schema_design_json, "utf8");
-  const patternsContent = Buffer.from(request.query_patterns_json, "utf8");
   if (manifestContent.length > 256 * 1024) {
     const error = new Error("seed.manifest.json exceeds its size limit");
     error.code = "ARTIFACT_SIZE_EXCEEDED";
@@ -388,11 +524,9 @@ function parseDirectValidation(request) {
   }
   let manifest;
   let schema;
-  let patterns;
   try {
     manifest = JSON.parse(request.manifest_json);
     schema = JSON.parse(projectLayout ? request.normalized_data_model_json : request.schema_design_json);
-    patterns = JSON.parse(projectLayout ? request.normalized_query_patterns_json : request.query_patterns_json);
   } catch {
     const error = new Error("A required JSON artifact is malformed");
     error.code = "ARTIFACT_MALFORMED";
@@ -416,10 +550,8 @@ function parseDirectValidation(request) {
   }
   const expectedInputs = projectLayout ? [
     ["data_model", "spec_architect/data_model.json", schemaContent],
-    ["query_patterns", "spec_architect/query_patterns.json", patternsContent],
   ] : [
     ["schema_design", `pocs/${request.poc_id}/spec/${request.spec_version}/schema_design.json`, schemaContent],
-    ["query_patterns", `pocs/${request.poc_id}/spec/${request.spec_version}/query_patterns.json`, patternsContent],
   ];
   for (const [name, key, content] of expectedInputs) {
     const declared = manifest.inputs?.[name];
@@ -431,6 +563,7 @@ function parseDirectValidation(request) {
       throw error;
     }
   }
+  const patterns = { patterns: [] };
   validateInputContract(schema, patterns);
   const validationRequest = { ...request, project_layout: projectLayout };
   const artifacts = validateManifestArtifacts(manifest, validationRequest, projectLayout ? projectSeedArtifactKey : seedArtifactKey);
@@ -461,7 +594,6 @@ async function executePreparedValidation(request, schema, patterns, contents) {
   validateGeneratedText(contents);
   validatePackageJsonText(contents["package.json"].toString("utf8"));
   validateSeedScriptText(contents["seed.js"]);
-  validateVectorSeedContract(contents["seed.js"], patterns);
   const directory = await mkdtemp(join(tmpdir(), "seed-validator-"));
   const databaseName = validationDatabaseName(request.poc_id, request.run_id);
   const caps = validationCaps(schema);
@@ -513,16 +645,22 @@ async function executePreparedValidation(request, schema, patterns, contents) {
     }
     await client.connect();
     const db = client.db(databaseName);
-    const search_index_validation = await createValidationSearchIndexes(db, patterns);
     await verifyIndexes(db, schema);
-    await verifyRelationships(db, schema);
-    const query_validation = await verifyQueryPatterns(db, patterns);
+    await verifyFieldSchemas(db, schema);
+    const query_validation = {
+      runtime_executed: 0,
+      read_operations_executed: 0,
+      write_operations_executed: 0,
+      static_vector_validated: 0,
+      static_search_validated: 0,
+    };
+    const search_index_validation = { created: [] };
     return { status: "succeeded", database_name: databaseName, target_database_name: targetDatabaseName(request.poc_id), caps, seed_summary: summary, query_validation, search_index_validation };
   } finally {
     let cleanupFailure;
     if (client) {
       try {
-        await cleanupValidationDatabase(client, databaseName, patterns);
+        await cleanupValidationDatabase(client, databaseName);
       } catch (error) {
         cleanupFailure = error;
       }
@@ -535,11 +673,14 @@ async function executePreparedValidation(request, schema, patterns, contents) {
 function declaredSearchIndexes(patterns) {
   const declared = new Map();
   for (const pattern of patterns.patterns || []) {
-    if (pattern.validation_mode !== "static_vector" || typeof pattern.collection !== "string") continue;
-    const vector = (pattern.pipeline || []).find((stage) => stage?.$vectorSearch)?.$vectorSearch;
-    if (!vector || typeof vector.index !== "string") continue;
+    if (!new Set(["static_vector", "static_search"]).has(pattern.validation_mode)
+      || typeof pattern.collection !== "string") continue;
+    const stage = pattern.validation_mode === "static_vector"
+      ? (pattern.pipeline || []).find((item) => item?.$vectorSearch)?.$vectorSearch
+      : (pattern.pipeline || []).find((item) => item?.$search)?.$search;
+    if (!stage || typeof stage.index !== "string") continue;
     if (!declared.has(pattern.collection)) declared.set(pattern.collection, new Set());
-    declared.get(pattern.collection).add(vector.index);
+    declared.get(pattern.collection).add(stage.index);
   }
   return declared;
 }
@@ -547,11 +688,13 @@ function declaredSearchIndexes(patterns) {
 async function createValidationSearchIndexes(db, patterns) {
   const created = [];
   for (const pattern of patterns.patterns || []) {
-    if (pattern.validation_mode !== "static_vector") continue;
+    if (!new Set(["static_vector", "static_search"]).has(pattern.validation_mode)) continue;
     const vector = (pattern.pipeline || []).find((stage) => stage?.$vectorSearch)?.$vectorSearch;
-    if (!vector) continue;
+    const search = (pattern.pipeline || []).find((stage) => stage?.$search)?.$search;
+    const index = vector || search;
+    if (!index) continue;
     const collection = db.collection(pattern.collection);
-    await collection.createSearchIndex({
+    const definition = vector ? {
       name: vector.index,
       type: "vectorSearch",
       definition: {
@@ -562,14 +705,19 @@ async function createValidationSearchIndexes(db, patterns) {
           similarity: "cosine",
         }],
       },
-    });
-    const actual = await collection.listSearchIndexes(vector.index).toArray();
-    if (!actual.some((index) => index?.name === vector.index)) {
+    } : {
+      name: search.index,
+      type: "search",
+      definition: { mappings: { dynamic: true } },
+    };
+    await collection.createSearchIndex(definition);
+    const actual = await collection.listSearchIndexes(index.index).toArray();
+    if (!actual.some((item) => item?.name === index.index)) {
       const error = new Error(`Query pattern ${pattern.id || "unknown"} search index was not created`);
       error.failureClass = "IMPLEMENTATION_FAILURE";
       throw error;
     }
-    created.push({ collection: pattern.collection, name: vector.index });
+    created.push({ collection: pattern.collection, name: index.index });
   }
   return { created };
 }
@@ -672,4 +820,8 @@ exports._test = {
   verifyRequestSignature,
   sanitizeFailureMessage,
   classifyFailure,
+  verifyQueryPatterns,
+  verifyFieldSchemas,
+  validateDocumentFields,
+  valueMatchesType,
 };

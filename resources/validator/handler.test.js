@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHash, createHmac } = require("node:crypto");
+const { Decimal128, Long, ObjectId } = require("mongodb");
 const { _test } = require("./handler");
 const POC_ID = "poc_01J8Q8MFYJ6NVJ8B2Q5V2D9Q1A";
 const RUN_ID = "run_01J8Q8MFYJ6NVJ8B2Q5V2D9Q1B";
@@ -20,7 +21,7 @@ function signedEvent(body, timestamp, secret = HMAC_SECRET) {
 
 function directRequest() {
   const schemaDesign = JSON.stringify({
-    collections: [{ name: "users", fields: [{ name: "_id" }], indexes: [], seed: { count: 1 } }],
+    collections: [{ name: "users", fields: [{ name: "_id", type: "objectId", required: true }], indexes: [], seed: { count: 1 } }],
   });
   const queryPatterns = JSON.stringify({ patterns: [] });
   const contents = {
@@ -191,6 +192,27 @@ test("creates and verifies exact validation vector search index definitions", as
     },
   }]);
   assert.deepEqual(result, { created: [{ collection: "support_tickets", name: "ticket_text_embedding_index" }] });
+});
+
+test("creates and verifies temporary Atlas Search index definitions", async () => {
+  const calls = [];
+  const collection = {
+    createSearchIndex: async (definition) => calls.push(definition),
+    listSearchIndexes: (name) => ({ toArray: async () => [{ name }] }),
+  };
+  const patterns = { patterns: [{
+    id: "QP-search",
+    collection: "chunks",
+    validation_mode: "static_search",
+    pipeline: [{ $search: { index: "search_chunks_text", text: { path: "text", query: "<queryText>" } } }],
+  }] };
+  const result = await _test.createValidationSearchIndexes({ collection: () => collection }, patterns);
+  assert.deepEqual(calls, [{
+    name: "search_chunks_text",
+    type: "search",
+    definition: { mappings: { dynamic: true } },
+  }]);
+  assert.deepEqual(result, { created: [{ collection: "chunks", name: "search_chunks_text" }] });
 });
 
 test("authenticates exact bodies at both replay-window boundaries", async () => {
@@ -367,22 +389,93 @@ test("cleanup failures are sanitized retryable infrastructure failures", async (
   });
 });
 
-test("classifies contradictory schema and query requirements before execution", () => {
+test("classifies contradictory field schemas and ignores query requirements", () => {
   const schema = {
     collections: [
-      { name: "accounts", fields: [{ name: "_id" }] },
+      { name: "accounts", fields: [{ name: "_id", type: "objectId" }] },
       {
         name: "invoices",
-        fields: [{ name: "account_id" }],
+        fields: [{ name: "account_id", type: "objectId" }],
         relationships: [{ field: "account_id", references: "accounts._id" }],
       },
     ],
   };
-  assert.doesNotThrow(() => _test.validateInputContract(schema, { patterns: [{ id: "p1", collection: "invoices" }] }));
+  assert.doesNotThrow(() => _test.validateInputContract(schema, { patterns: [{ id: "p1", collection: "invoices", operation: "find" }] }));
+  assert.doesNotThrow(() => _test.validateInputContract(schema, { patterns: [{ id: "p2", collection: "payments", operation: "invalid" }] }));
   assert.throws(
-    () => _test.validateInputContract(schema, { patterns: [{ id: "p2", collection: "payments" }] }),
+    () => _test.validateInputContract({ collections: [{ name: "bad", fields: [{ name: "value" }] }] }, { patterns: [] }),
     (error) => error.failureClass === "REQUEST_CONTRADICTION",
   );
+});
+
+test("validates required optional and BSON field types recursively", async () => {
+  const schema = { collections: [{
+    name: "records",
+    fields: [
+      { name: "_id", type: "objectId", required: true },
+      { name: "name", type: "string", required: true },
+      { name: "enabled", type: "boolean", required: false },
+      { name: "count", type: "int", required: true },
+      { name: "large", type: "long", required: true },
+      { name: "ratio", type: "double", required: true },
+      { name: "amount", type: "decimal", required: true },
+      { name: "created_at", type: "date", required: true },
+      { name: "tags", type: "array<string>", required: true },
+      { name: "metadata", type: "document", required: true, fields: [
+        { name: "language", type: "string", required: true },
+      ] },
+      { name: "results", type: "array<document>", required: true, fields: [
+        { name: "score", type: "double", required: true },
+      ] },
+      { name: "anything", type: "mixed", required: true },
+    ],
+  }] };
+  const document = {
+    _id: new ObjectId(), name: "record", count: 2, large: Long.fromNumber(10), ratio: 0.5,
+    amount: Decimal128.fromString("12.50"), created_at: new Date("2026-01-01T00:00:00Z"),
+    tags: ["one", "two"], metadata: { language: "en" }, results: [{ score: 0.9 }], anything: { free: true },
+  };
+  const db = { collection: () => ({ find: () => ({ toArray: async () => [document] }) }) };
+  await assert.doesNotReject(() => _test.verifyFieldSchemas(db, schema));
+  document.enabled = null;
+  await assert.doesNotReject(() => _test.verifyFieldSchemas(db, schema));
+});
+
+test("rejects missing null and incorrectly typed seeded fields with paths", async () => {
+  const fields = [
+    { name: "name", type: "string", required: true },
+    { name: "metadata", type: "document", required: true, fields: [
+      { name: "language", type: "string", required: true },
+    ] },
+    { name: "results", type: "array<document>", required: true, fields: [
+      { name: "score", type: "double", required: true },
+    ] },
+  ];
+  assert.throws(() => _test.validateDocumentFields({ metadata: { language: "en" }, results: [] }, fields, "records"), /field name is required/);
+  assert.throws(() => _test.validateDocumentFields({ name: null, metadata: { language: "en" }, results: [] }, fields, "records"), /field name is required/);
+  assert.throws(() => _test.validateDocumentFields({ name: "ok", metadata: { language: 7 }, results: [] }, fields, "records"), /metadata.language requires string/);
+  assert.throws(() => _test.validateDocumentFields({ name: "ok", metadata: { language: "en" }, results: [{ score: "high" }] }, fields, "records"), /results\[0\]\.score requires double/);
+});
+
+test("accepts absent optional fields but validates present optional values and enums", () => {
+  const fields = [
+    { name: "status", type: "string", required: false, enum: ["open", "closed"] },
+    { name: "flags", type: "array<boolean>", required: false },
+  ];
+  assert.doesNotThrow(() => _test.validateDocumentFields({}, fields, "records"));
+  assert.doesNotThrow(() => _test.validateDocumentFields({ status: null }, fields, "records"));
+  assert.doesNotThrow(() => _test.validateDocumentFields({ status: "open", flags: [true, false] }, fields, "records"));
+  assert.throws(() => _test.validateDocumentFields({ status: "invalid" }, fields, "records"), /outside its enum/);
+  assert.throws(() => _test.validateDocumentFields({ flags: [true, "false"] }, fields, "records"), /requires array<boolean>/);
+});
+
+test("ignores relationship metadata in input contracts", () => {
+  const schema = { collections: [{
+    name: "customers",
+    fields: [{ name: "customer_id", type: "string", required: true }],
+    relationships: ["malformed", { type: "one_to_many", to_collection: "missing", via: "anything" }],
+  }] };
+  assert.doesNotThrow(() => _test.validateInputContract(schema, { patterns: [{ operation: "invalid" }] }));
 });
 
 test("enables forced implementation failure only when explicitly requested", () => {
@@ -403,6 +496,137 @@ test("substitutes query placeholders deterministically", () => {
     created_at: { "$lt": new Date("2026-01-01T00:00:00Z") },
   });
   assert.equal(_test.substitutePlaceholders("<hour|day|week>", {}), "day");
+  assert.deepEqual(_test.substitutePlaceholders("<query_embedding>", {}), Array(8).fill(0));
+  assert.equal(_test.substitutePlaceholders("<score_1>", {}), 0.5);
+  assert.equal(_test.substitutePlaceholders("<top_k>", {}), 10);
+  assert.equal(_test.substitutePlaceholders("<query_text>", {}), "query_text");
+});
+
+test("executes ordered insertOne and findOne patterns with read-back", async () => {
+  const calls = [];
+  const documents = [{ _id: "seed-1", query_text: "existing", created_at: new Date("2026-01-01T00:00:00Z") }];
+  const collection = {
+    findOne: async (match, options) => {
+      calls.push(["findOne", match, options]);
+      if (!match || Object.keys(match).length === 0) return documents[0];
+      return documents.find((document) => Object.entries(match).every(([key, value]) => document[key] === value)) || null;
+    },
+    insertOne: async (document) => {
+      calls.push(["insertOne", document]);
+      const inserted = { _id: "inserted-1", ...document };
+      documents.push(inserted);
+      return { acknowledged: true, insertedId: inserted._id };
+    },
+  };
+  const result = await _test.verifyQueryPatterns(
+    { collection: () => collection },
+    { patterns: [
+      {
+        id: "insert",
+        collection: "search_queries",
+        operation: "insertOne",
+        document: { query_text: "<query_text>", created_at: "<now>" },
+      },
+      {
+        id: "read",
+        collection: "search_queries",
+        operation: "findOne",
+        match: { _id: "inserted-1" },
+        projection: { query_text: 1 },
+      },
+    ] },
+  );
+  assert.deepEqual(result, {
+    runtime_executed: 2,
+    read_operations_executed: 1,
+    write_operations_executed: 1,
+    static_vector_validated: 0,
+    static_search_validated: 0,
+  });
+  assert.equal(calls.filter(([name]) => name === "insertOne").length, 1);
+  assert.ok(calls.some(([name, match, options]) => name === "findOne"
+    && match?._id === "inserted-1" && options?.projection?.query_text === 1));
+});
+
+test("rejects unacknowledged insertOne validation", async () => {
+  const collection = {
+    findOne: async () => ({ _id: "seed-1" }),
+    insertOne: async () => ({ acknowledged: false }),
+  };
+  await assert.rejects(
+    () => _test.verifyQueryPatterns(
+      { collection: () => collection },
+      { patterns: [{ id: "insert", collection: "queries", operation: "insertOne", document: { value: "<value>" } }] },
+    ),
+    /insertOne was not acknowledged/,
+  );
+});
+
+test("substitutes find limit placeholders before execution", async () => {
+  const calls = [];
+  const cursor = {
+    project: () => cursor,
+    sort: () => cursor,
+    limit: (value) => {
+      calls.push(value);
+      return cursor;
+    },
+    toArray: async () => [],
+  };
+  const collection = {
+    findOne: async () => ({ _id: "seed-1" }),
+    find: () => cursor,
+  };
+  const result = await _test.verifyQueryPatterns(
+    { collection: () => collection },
+    { patterns: [{
+      id: "history",
+      collection: "search_queries",
+      operation: "find",
+      match: {},
+      limit: "<page_size>",
+    }] },
+  );
+  assert.deepEqual(calls, [10]);
+  assert.equal(result.read_operations_executed, 1);
+});
+
+test("executes aggregate_merge only into its declared validation collection", async () => {
+  const calls = [];
+  let mergedDocument;
+  const source = {
+    findOne: async () => ({ _id: "source-1", value: 3 }),
+    aggregate: (pipeline) => ({
+      toArray: async () => {
+        calls.push(["aggregate", pipeline]);
+        mergedDocument = { _id: "snapshot-1", value: 3 };
+        return [];
+      },
+    }),
+  };
+  const target = { findOne: async () => mergedDocument || null };
+  const db = { collection: (name) => name === "source" ? source : target };
+  const patterns = { patterns: [{
+    id: "refresh",
+    collection: "source",
+    operation: "aggregate_merge",
+    pipeline: [{ "$project": { value: 1 } }, { "$merge": { into: "snapshots" } }],
+  }] };
+  _test.validateInputContract({
+    collections: [
+      { name: "source", fields: [{ name: "_id", type: "string" }, { name: "value", type: "int" }] },
+      { name: "snapshots", fields: [{ name: "_id", type: "string" }, { name: "value", type: "int" }] },
+    ],
+  }, patterns);
+  const result = await _test.verifyQueryPatterns(db, patterns);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(result, {
+    runtime_executed: 1,
+    read_operations_executed: 0,
+    write_operations_executed: 1,
+    static_vector_validated: 0,
+    static_search_validated: 0,
+  });
 });
 
 test("accepts production manifest artifact keys", () => {
@@ -466,6 +690,21 @@ test("accepts project-layout inputs with numeric POC identity and normalized exe
   assert.equal(prepared.manifest.storage.branch, "nishit-rao-mongodb-com/triage-support");
   assert.equal(prepared.schema.collections[0].name, "users");
   assert.deepEqual(Object.keys(prepared.contents).sort(), ["SEED_README.md", "package.json", "seed.js"]);
+});
+
+test("ignores missing malformed and tampered query-pattern inputs", () => {
+  const request = projectDirectRequest();
+  request.query_patterns_json = "not-json";
+  request.normalized_query_patterns_json = "also-not-json";
+  const manifest = JSON.parse(request.manifest_json);
+  manifest.inputs.query_patterns = { key: "wrong/path.json", sha256: "not-a-digest" };
+  request.manifest_json = JSON.stringify(manifest);
+  const prepared = _test.parseDirectValidation(request);
+  assert.deepEqual(prepared.patterns, { patterns: [] });
+
+  delete request.query_patterns_json;
+  delete request.normalized_query_patterns_json;
+  assert.deepEqual(_test.parseDirectValidation(request).patterns, { patterns: [] });
 });
 
 test("rejects direct validation with wrong branch or committed content", () => {

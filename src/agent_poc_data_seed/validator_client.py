@@ -120,8 +120,6 @@ class SeedValidatorClient:
         schema_design_json: str = "",
         data_model_json: str = "",
         normalized_data_model_json: str = "",
-        query_patterns_json: str,
-        normalized_query_patterns_json: str = "",
         artifacts: Mapping[str, str],
         mongodb_uri: str,
     ) -> dict[str, Any]:
@@ -142,8 +140,6 @@ class SeedValidatorClient:
                 **({"schema_design_json": schema_design_json} if schema_design_json else {}),
                 **({"data_model_json": data_model_json} if data_model_json else {}),
                 **({"normalized_data_model_json": normalized_data_model_json} if normalized_data_model_json else {}),
-                "query_patterns_json": query_patterns_json,
-                **({"normalized_query_patterns_json": normalized_query_patterns_json} if normalized_query_patterns_json else {}),
                 "artifacts": dict(artifacts),
                 "mongodb_uri": mongodb_uri,
             },

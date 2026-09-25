@@ -23,24 +23,21 @@ def normalize_github_tool_calls(
             for call in response.tool_calls
             if call["name"] == "read_seed_input_from_github_tool"
         )
-        reads = []
-        for artifact in ("data_model", "query_patterns"):
-            source = resolved_context[artifact]
-            reads.append({
-                "name": "read_seed_input_from_github_tool",
-                "id": f"{base_id}-{artifact}",
-                "type": "tool_call",
-                "args": {
-                    "artifact": artifact,
-                    "poc_id": envelope.poc_id,
-                    "branch": resolved_context["branch"],
-                    "path": source["path"],
-                    "source_commit_sha": source["commit_sha"],
-                    "query_patterns_commit_sha": resolved_context["query_patterns"]["commit_sha"],
-                    "spec_version": envelope.spec_version or "",
-                },
-            })
-        return response.model_copy(update={"tool_calls": reads})
+        source = resolved_context["data_model"]
+        read = {
+            "name": "read_seed_input_from_github_tool",
+            "id": f"{base_id}-data_model",
+            "type": "tool_call",
+            "args": {
+                "artifact": "data_model",
+                "poc_id": envelope.poc_id,
+                "branch": resolved_context["branch"],
+                "path": source["path"],
+                "source_commit_sha": source["commit_sha"],
+                "spec_version": envelope.spec_version or "",
+            },
+        }
+        return response.model_copy(update={"tool_calls": [read]})
     normalized_calls: list[dict[str, Any]] = []
     previous_version = f"v{int(workflow['current_code_version'][1:]) - 1:03d}"
     validation = workflow.get("validation", {})
@@ -50,14 +47,14 @@ def normalize_github_tool_calls(
         args = dict(call.get("args", {}))
         if call["name"] == "read_seed_input_from_github_tool":
             artifact_name = str(args.get("artifact", ""))
-            if resolved_context and artifact_name in {"data_model", "query_patterns"}:
-                source = resolved_context[artifact_name]
+            if resolved_context:
+                source = resolved_context["data_model"]
                 args.update(
+                    artifact="data_model",
                     poc_id=envelope.poc_id,
                     branch=resolved_context["branch"],
                     path=source["path"],
                     source_commit_sha=source["commit_sha"],
-                    query_patterns_commit_sha=resolved_context["query_patterns"]["commit_sha"],
                 )
             else:
                 args.update(
@@ -90,7 +87,6 @@ def normalize_github_tool_calls(
                     branch=resolved_context["branch"],
                     spec_commit_sha="",
                     data_model_commit_sha=resolved_context["data_model"]["commit_sha"],
-                    query_patterns_commit_sha=resolved_context["query_patterns"]["commit_sha"],
                     defaults_json=__import__("json").dumps(resolved_context.get("defaults_applied", [])),
                 )
         normalized_calls.append({**call, "args": args})

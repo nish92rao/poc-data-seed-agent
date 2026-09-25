@@ -20,9 +20,9 @@ The HMAC secret is read from AWS Secrets Manager through `VALIDATOR_AUTH_SECRET_
 
 ## Request
 
-The direct request contains production correlation IDs, code version, repository and validated shared-state branch identity, the exact seed commit SHA, exact manifest text, original `data_model` and `query_patterns` bytes, normalized execution structures, exact generated artifact text, and a runtime-injected MongoDB URI. Each specification input is bound to its own path, commit SHA, and content hash in the manifest. The request never contains a GitHub token.
+The direct request contains production correlation IDs, code version, repository and validated shared-state branch identity, the exact seed commit SHA, exact manifest text, original `data_model` bytes, normalized data-model structure, exact generated artifact text, and a runtime-injected MongoDB URI. The data model is bound to its exact path, commit SHA, and content hash in the manifest. The request never contains a GitHub token.
 
-The handler validates storage identity, correlation, canonical `spec_architect` and `seed/vNNN` paths, hashes, byte counts, static security constraints, JavaScript syntax, package constraints, seed output, ordinary indexes, relationships, and query patterns. Ordinary queries execute against a capped run-scoped database. For Atlas Vector Search, Lambda creates and verifies the declared temporary vector index, records static vector-query validation, explicitly deletes that index, and then drops the disposable database. Cleanup failures return sanitized retryable infrastructure errors.
+The handler validates storage identity, correlation, canonical `spec_architect` and `seed/vNNN` paths, hashes, byte counts, static security constraints, JavaScript syntax, package constraints, seed output, explicit ordinary indexes, and every seeded document's required/optional fields, enums, nested schemas, and BSON types. Relationship metadata is ignored. Query-pattern payload fields and legacy manifest metadata are also ignored. Query/search result fields remain present as zeros and empty arrays for response compatibility. The disposable database is always dropped; cleanup failures return sanitized retryable infrastructure errors.
 
 ## Environment
 

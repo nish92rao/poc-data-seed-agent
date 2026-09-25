@@ -81,7 +81,6 @@ class WorkflowTests(unittest.TestCase):
         context = {
             "branch": "owner/project",
             "data_model": {"commit_sha": "a" * 40},
-            "query_patterns": {"commit_sha": "b" * 40},
             "defaults_applied": ["default"],
         }
         normalized = normalize_github_tool_calls(
@@ -94,11 +93,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(args["branch"], "owner/project")
         self.assertEqual(args["spec_commit_sha"], "")
         self.assertEqual(args["data_model_commit_sha"], "a" * 40)
-        self.assertEqual(args["query_patterns_commit_sha"], "b" * 40)
+        self.assertNotIn("query_patterns_commit_sha", args)
         self.assertEqual(args["code_version"], "v004")
         self.assertEqual(args["expected_head_sha"], "c" * 40)
 
-    def test_project_data_model_read_uses_query_commit_for_index_derivation(self) -> None:
+    def test_project_data_model_read_uses_only_data_model_commit(self) -> None:
         response = AIMessage(content="", tool_calls=[{
             "name": "read_seed_input_from_github_tool",
             "id": "read",
@@ -113,7 +112,6 @@ class WorkflowTests(unittest.TestCase):
         context = {
             "branch": "owner/project",
             "data_model": {"path": "spec_architect/data_model.json", "commit_sha": "a" * 40},
-            "query_patterns": {"path": "spec_architect/query_patterns.json", "commit_sha": "b" * 40},
         }
         normalized = normalize_github_tool_calls(
             response,
@@ -123,9 +121,9 @@ class WorkflowTests(unittest.TestCase):
         )
         args = normalized.tool_calls[0]["args"]
         self.assertEqual(args["source_commit_sha"], "a" * 40)
-        self.assertEqual(args["query_patterns_commit_sha"], "b" * 40)
+        self.assertNotIn("query_patterns_commit_sha", args)
 
-    def test_combined_model_read_is_expanded_to_two_graph_owned_reads(self) -> None:
+    def test_combined_model_read_is_replaced_by_one_data_model_read(self) -> None:
         response = AIMessage(content="", tool_calls=[{
             "name": "read_seed_input_from_github_tool",
             "id": "combined",
@@ -140,7 +138,6 @@ class WorkflowTests(unittest.TestCase):
         context = {
             "branch": "owner/project",
             "data_model": {"path": "spec_architect/data_model.json", "commit_sha": "a" * 40},
-            "query_patterns": {"path": "spec_architect/query_patterns.json", "commit_sha": "b" * 40},
         }
         normalized = normalize_github_tool_calls(
             response,
@@ -148,9 +145,8 @@ class WorkflowTests(unittest.TestCase):
             {"phase": "generate", "validation_attempts": 0, "current_code_version": "v011"},
             context,
         )
-        self.assertEqual([call["args"]["artifact"] for call in normalized.tool_calls], ["data_model", "query_patterns"])
+        self.assertEqual([call["args"]["artifact"] for call in normalized.tool_calls], ["data_model"])
         self.assertEqual(normalized.tool_calls[0]["args"]["source_commit_sha"], "a" * 40)
-        self.assertEqual(normalized.tool_calls[1]["args"]["source_commit_sha"], "b" * 40)
 
     def test_successful_validation_completes_workflow(self) -> None:
         decision = decide_validation_result(

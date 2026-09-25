@@ -19,6 +19,7 @@ Generated `seed.js` is untrusted. GitHub contents, public HTTP requests, model-i
 | Secret scanning and error sanitization | Fixed and tested | Artifact scans cover URIs, credentialed URLs, private keys, and secret assignments. AST policy limits modules and environment access. Public failures redact credentials, URIs, ARNs, network addresses, stack paths, and stderr. |
 | Validator cleanup scope | Fixed and tested live | Cleanup selects only the computed `validationDatabaseName(poc_id, run_id)`, explicitly deletes declared temporary Atlas Search indexes, and drops the disposable database. List/drop/close failures return sanitized retryable `VALIDATION_CLEANUP_FAILED`. |
 | Validation cannot modify actual target database | Configuration-backed proof complete | Dedicated validation and target clusters/accounts are mandatory. The two-cluster sentinel suite proved that validation credentials cannot modify the target-cluster sentinel. Code alone cannot prove operator configuration, so endpoint separation remains a deployment control. |
+| Query-pattern and relationship scope | Removed in validator `1.0.11`; deployment pending | Query patterns and relationship metadata are ignored. Validation enforces data-model field presence, nullability, enums, BSON types, explicit indexes, caps, security, and cleanup. |
 
 ## Findings
 
@@ -77,6 +78,13 @@ Generated `seed.js` is untrusted. GitHub contents, public HTTP requests, model-i
 - Status: Fixed, deployed, and inspected
 - Fix: API Gateway default throttling is 5 requests/second with burst 10. Access logs contain only request ID, route key, and status; request bodies and headers are excluded. Lambda and API logs retain 14 days.
 - Deployment evidence: Lambda state `Active`, update status `Successful`; API stage reports rate 5 and burst 10; route inventory contains only `GET /health` and `POST /v1/validations/direct`.
+
+### SEC-009: Query-Pattern Bypass
+
+- Severity: High
+- Status: Removed and locally verified in validator `1.0.11`; cloud deployment pending
+- Fix: Production consumes only `data_model.json`. Query-pattern references, files, payloads, hashes, validation, writes, and Search-index lifecycle are bypassed. Legacy query metadata is accepted only for manifest compatibility and ignored. Query-validation counters are always zero.
+- Evidence: Shared-state bypass tests, workflow single-read tests, malformed/missing query-payload tests, data-model-only golden integration, and mandatory cleanup tests.
 
 ## Verification Commands
 

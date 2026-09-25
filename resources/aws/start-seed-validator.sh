@@ -9,7 +9,7 @@ AWS_REGION="ap-south-1"
 RESOURCE_PREFIX="nishrao-"
 VALIDATOR_NAME="${RESOURCE_PREFIX}poc-data-seed-validator"
 VALIDATOR_ECR_REPOSITORY="${RESOURCE_PREFIX}poc-data-seed-validator"
-VALIDATOR_IMAGE_TAG="1.0.6"
+VALIDATOR_IMAGE_TAG="1.0.11"
 VALIDATOR_AUTH_SECRET_NAME="${RESOURCE_PREFIX}poc-data-seed-validator-auth"
 # CloudShell runs x86_64 Docker builders. Keep the Lambda architecture aligned
 # with the image build to avoid an ARM emulation requirement.
