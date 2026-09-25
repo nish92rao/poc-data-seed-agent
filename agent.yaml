@@ -1,5 +1,5 @@
 # Human-readable app slug used by Agentic Platform tooling.
-# `agentic create` should rewrite this when generating a new app from the template.
+# `agentengine create` should rewrite this when generating a new app from the template.
 name: poc-data-seed
 # Python import path to the SDK App instance.
 # Format: <module path>:<variable name>. This template exposes `app` from
