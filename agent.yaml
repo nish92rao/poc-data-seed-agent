@@ -1,4 +1,4 @@
-# Human-readable app slug used by Agentic Platform tooling.
+# Human-readable app slug used by Atlas Agent Engine tooling.
 # `agentengine create` should rewrite this when generating a new app from the template.
 name: poc-data-seed
 # Python import path to the SDK App instance.

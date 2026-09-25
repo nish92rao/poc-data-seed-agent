@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
-    "runner-shared[mongodb]",
-    "magenta-sdklanggraph",
+    "agent-engine-runner-shared[mongodb]",
+    "agent-engine-sdk-langgraph",
     "grpcio>=1.76.0",
     "grpcio-health-checking>=1.76.0",
     "python-dotenv>=1.0.0",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from magenta_sdklanggraph import App
+from agent_engine_sdk_langgraph import App
 
 from agent_poc_data_seed.github_storage import (
     GitHubRepoStore,

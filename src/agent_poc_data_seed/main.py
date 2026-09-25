@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
-from magenta_sdklanggraph import App
+from agent_engine_sdk_langgraph import App
 
 from agent_poc_data_seed.envelope import SeedGenerationEnvelope, fresh_seed_envelope, latest_seed_envelope
 from agent_poc_data_seed.database_naming import target_database_name

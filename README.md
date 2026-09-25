@@ -139,14 +139,14 @@ Caller-provided storage modes, branches, paths, versions, source commits, valida
 Direct OE invocation wraps the serialized envelope in `message` and supplies top-level `user_id`:
 
 ```bash
-OE_PORT="$(docker compose -f .agentic/docker-compose.dev.yml port oe 8000 | awk -F: '{print $NF}')"
+OE_PORT="$(docker compose -f .agentengine/docker-compose.dev.yml port oe 8000 | awk -F: '{print $NF}')"
 
 curl -X POST "http://127.0.0.1:${OE_PORT}/invoke" \
   -H 'Content-Type: application/json' \
   -d '{"message":"{\"request\":{\"poc_id\":\"1790237138344\"}}","user_id":"local-test"}'
 ```
 
-Use the OE port shown by `agentic dev up`; it may differ between runs.
+Use the OE port shown by `agentengine dev up`; it may differ between runs.
 
 ## Response Envelope
 
@@ -320,7 +320,7 @@ Never put secrets in AgentEnvelope, shared artifact metadata, generated files, p
 - `SEED_VALIDATION_MONGODB_URI` is passed only through protected runtime code to Lambda and generated validation process environment.
 - `SHARED_STATE_MONGODB_URI` remains environment-only. Production should use a separate least-privilege credential that can read the POC document and update only the owned seed pointer/timestamp fields.
 - The validation MongoDB account must be isolated from target POC databases.
-- `MONGODB_URI` is platform-owned by local Agentic services unless `dev.yaml` selects external platform MongoDB.
+- `MONGODB_URI` is platform-owned by local Agent Engine services unless `dev.yaml` selects external platform MongoDB.
 - Error sanitization removes URIs, credentials, AWS ARNs, network addresses, stack paths, raw stderr, and provider bodies.
 
 The public validator endpoint uses HTTPS. `GET /health` is unauthenticated. `POST /v1/validations/direct` requires HMAC-SHA256 headers `x-validator-timestamp` and `x-validator-signature`. Signatures cover `timestamp.canonical_json_body`; timestamps outside 300 seconds are rejected. Replay inside that bounded window is accepted by design. API Gateway throttles requests and access logs omit bodies and headers.
@@ -352,21 +352,21 @@ SEED_VALIDATION_MONGODB_URI=mongodb+srv://...
 Changing `.env` while the local stack is running requires full environment regeneration; container restart alone preserves stale Docker environment values:
 
 ```bash
-agentic dev down
-AGENTIC_DEV_WATCH=0 agentic dev up
+agentengine dev down
+AGENTENGINE_DEV_WATCH=0 agentengine dev up
 ```
 
 ## Local Development
 
-Prerequisites: Python 3.11+, Node.js 20, Docker, npm, and the Agentic CLI.
+Prerequisites: Python 3.11+, Node.js 20, Docker, npm, and the Agent Engine CLI.
 
 ```bash
-agentic dev down
-AGENTIC_DEV_WATCH=0 agentic dev up
-agentic dev status
+agentengine dev down
+AGENTENGINE_DEV_WATCH=0 agentengine dev up
+agentengine dev status
 ```
 
-The Playground is available at `http://localhost:3000`. OE and MongoDB host ports are printed by `agentic dev up` and may be dynamically assigned by Docker.
+The Playground is available at `http://localhost:3000`. OE and MongoDB host ports are printed by `agentengine dev up` and may be dynamically assigned by Docker.
 
 ## Test Commands And Markers
 
@@ -452,7 +452,7 @@ bash resources/aws/print-validator-local-env.sh
 
 That prints `SEED_VALIDATOR_URL`, `SEED_VALIDATOR_HMAC_SECRET`, and timeout. Configure `SEED_VALIDATION_MONGODB_URI` separately; it is never stored in Lambda or printed by the script.
 
-After changing local `.env`, recreate the Agentic stack, then run `RUN_LIVE_TESTS=1 scripts/test-live.sh` before acceptance testing.
+After changing local `.env`, recreate the Agent Engine stack, then run `RUN_LIVE_TESTS=1 scripts/test-live.sh` before acceptance testing.
 
 Teardown:
 
@@ -469,7 +469,7 @@ Teardown targets only resources recorded in the namespaced state file. ECR and t
 3. Insert or verify the POC shared document and its two exact GitHub input references.
 4. Run `scripts/bootstrap-shared-poc.py <pov_id>` only when fixture input publication is required.
 5. Deploy the current Lambda image and verify state `Active`, update `Successful`, and the two-route inventory.
-6. Update `.env`, then fully recreate the Agentic stack.
+6. Update `.env`, then fully recreate the Agent Engine stack.
 7. Run unit, security, integration, isolation, and live suites with their explicit markers.
 8. Submit `{"request":{"poc_id":"<pov_id>"}}` through the Playground or Coding Orchestrator.
 9. Verify response success, exact bundle/report commits, shared-state pointer, and no remaining validation database/search index.

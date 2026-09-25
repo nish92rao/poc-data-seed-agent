@@ -285,7 +285,7 @@ The test taxonomy, prerequisites, and explicit markers are documented in `README
 
 - `SEED_VALIDATION_MONGODB_URI` must use credentials isolated from target POC databases.
 - `SHARED_STATE_MONGODB_URI` currently reuses validation credentials in local development by explicit temporary decision; production must use separate least-privilege shared-state credentials.
-- Updating `.env` requires full Agentic stack recreation; container restart alone preserves stale Docker environment values.
+- Updating `.env` requires full Agent Engine stack recreation; container restart alone preserves stale Docker environment values.
 - GitHub PAT, HMAC secret, LLM keys, and MongoDB URIs require external rotation and secret injection.
 - Cleanup failure is surfaced, but there is no scheduled orphan-database/index scavenger in this repository.
 - No hosted CI workflow is configured; repository scripts are CI-compatible entry points.
@@ -441,8 +441,8 @@ VOYAGE_API_KEY when memory is enabled
 Changing local `.env` requires full stack recreation:
 
 ```bash
-agentic dev down
-AGENTIC_DEV_WATCH=0 agentic dev up
+agentengine dev down
+AGENTENGINE_DEV_WATCH=0 agentengine dev up
 ```
 
 A container restart alone retains stale Docker environment values.
