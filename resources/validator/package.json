@@ -1,0 +1,15 @@
+{
+  "name": "nishrao-poc-data-seed-validator",
+  "version": "1.0.6",
+  "private": true,
+  "description": "Synchronous Lambda validator for generated MongoDB seed bundles",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.0.0",
+    "acorn": "^8.18.0",
+    "mongodb": "^6.0.0"
+  }
+}

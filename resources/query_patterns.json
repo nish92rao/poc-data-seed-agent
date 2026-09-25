@@ -1,0 +1,451 @@
+{
+  "QP-1": {
+    "id": "QP-1",
+    "name": "Get ticket triage suggestion for agent review",
+    "serves": [
+      "UC-1",
+      "UC-2",
+      "J-1"
+    ],
+    "collections": [
+      "support_tickets",
+      "support_teams"
+    ],
+    "query": {
+      "collection": "support_tickets",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$match": {
+            "ticket_id": "<ticket_id>"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "support_teams",
+            "localField": "triage_suggestion.suggested_team_id",
+            "foreignField": "_id",
+            "as": "suggested_team"
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$suggested_team",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "ticket_id": 1,
+            "subject": 1,
+            "description": 1,
+            "customer_account_tier": 1,
+            "product_line": 1,
+            "manual_priority": 1,
+            "status": 1,
+            "triage_suggestion.suggested_priority": 1,
+            "triage_suggestion.generated_at": 1,
+            "triage_suggestion.model_version": 1,
+            "triage_suggestion.confidence": 1,
+            "suggested_team": {
+              "team_id": "$suggested_team.team_id",
+              "name": "$suggested_team.name",
+              "description": "$suggested_team.description",
+              "active": "$suggested_team.active"
+            }
+          }
+        }
+      ]
+    },
+    "purpose": "Fetch a specific ticket with its suggested priority and suggested routing team so an agent can review triage assistance in the POV."
+  },
+  "QP-2": {
+    "id": "QP-2",
+    "name": "Find 3-4 similar resolved historical tickets",
+    "serves": [
+      "UC-3",
+      "J-1"
+    ],
+    "collections": [
+      "support_tickets",
+      "support_teams"
+    ],
+    "query": {
+      "collection": "support_tickets",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$vectorSearch": {
+            "index": "ticket_text_embedding_index",
+            "path": "text_embedding",
+            "queryVector": "<query_ticket_embedding>",
+            "numCandidates": 100,
+            "limit": 4,
+            "filter": {
+              "status": "resolved",
+              "is_historical_import": true,
+              "resolution": {
+                "$exists": true
+              }
+            }
+          }
+        },
+        {
+          "$match": {
+            "ticket_id": {
+              "$ne": "<current_ticket_id>"
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "support_teams",
+            "localField": "assigned_team_id",
+            "foreignField": "_id",
+            "as": "assigned_team"
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$assigned_team",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "ticket_id": 1,
+            "subject": 1,
+            "description": 1,
+            "product_line": 1,
+            "customer_account_tier": 1,
+            "manual_priority": 1,
+            "channel": 1,
+            "resolved_at": 1,
+            "resolution.category": 1,
+            "resolution.summary": 1,
+            "assigned_team": {
+              "team_id": "$assigned_team.team_id",
+              "name": "$assigned_team.name"
+            },
+            "similarity_score": {
+              "$meta": "vectorSearchScore"
+            }
+          }
+        },
+        {
+          "$limit": 4
+        }
+      ]
+    },
+    "purpose": "Return 3-4 semantically similar resolved tickets, including prior resolution information, to help the agent handle the current ticket faster."
+  },
+  "QP-3": {
+    "id": "QP-3",
+    "name": "Dashboard ticket volume by product line over time from raw tickets",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "support_tickets"
+    ],
+    "query": {
+      "collection": "support_tickets",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$match": {
+            "created_at": {
+              "$gte": "<start_date>",
+              "$lt": "<end_date>"
+            }
+          }
+        },
+        {
+          "$group": {
+            "_id": {
+              "time_bucket": {
+                "$dateTrunc": {
+                  "date": "$created_at",
+                  "unit": "<hour|day|week>"
+                }
+              },
+              "product_line": "$product_line"
+            },
+            "ticket_count": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "time_bucket": "$_id.time_bucket",
+            "product_line": "$_id.product_line",
+            "ticket_count": 1
+          }
+        },
+        {
+          "$sort": {
+            "time_bucket": 1,
+            "product_line": 1
+          }
+        }
+      ]
+    },
+    "purpose": "Generate live chart data showing ticket volume trends by product line over time directly from ticket records."
+  },
+  "QP-4": {
+    "id": "QP-4",
+    "name": "Dashboard ticket volume by priority over time from raw tickets",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "support_tickets"
+    ],
+    "query": {
+      "collection": "support_tickets",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$match": {
+            "created_at": {
+              "$gte": "<start_date>",
+              "$lt": "<end_date>"
+            }
+          }
+        },
+        {
+          "$group": {
+            "_id": {
+              "time_bucket": {
+                "$dateTrunc": {
+                  "date": "$created_at",
+                  "unit": "<hour|day|week>"
+                }
+              },
+              "priority": {
+                "$ifNull": [
+                  "$manual_priority",
+                  "unassigned"
+                ]
+              }
+            },
+            "ticket_count": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "time_bucket": "$_id.time_bucket",
+            "priority": "$_id.priority",
+            "ticket_count": 1
+          }
+        },
+        {
+          "$sort": {
+            "time_bucket": 1,
+            "priority": 1
+          }
+        }
+      ]
+    },
+    "purpose": "Generate live chart data showing ticket volume trends by priority over time directly from ticket records."
+  },
+  "QP-5": {
+    "id": "QP-5",
+    "name": "Dashboard average resolution time by team from raw tickets",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "support_tickets",
+      "support_teams"
+    ],
+    "query": {
+      "collection": "support_tickets",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$match": {
+            "status": "resolved",
+            "assigned_team_id": {
+              "$exists": true,
+              "$ne": null
+            },
+            "created_at": {
+              "$gte": "<start_date>",
+              "$lt": "<end_date>"
+            },
+            "resolved_at": {
+              "$exists": true,
+              "$ne": null
+            }
+          }
+        },
+        {
+          "$group": {
+            "_id": "$assigned_team_id",
+            "avg_resolution_hours": {
+              "$avg": {
+                "$divide": [
+                  {
+                    "$subtract": [
+                      "$resolved_at",
+                      "$created_at"
+                    ]
+                  },
+                  3600000
+                ]
+              }
+            },
+            "resolved_ticket_count": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "support_teams",
+            "localField": "_id",
+            "foreignField": "_id",
+            "as": "team"
+          }
+        },
+        {
+          "$unwind": "$team"
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "team_id": "$team.team_id",
+            "team_name": "$team.name",
+            "avg_resolution_hours": 1,
+            "resolved_ticket_count": 1
+          }
+        },
+        {
+          "$sort": {
+            "team_name": 1
+          }
+        }
+      ]
+    },
+    "purpose": "Generate live dashboard data for average resolution time by team using resolved tickets with both created and resolved timestamps."
+  },
+  "QP-6": {
+    "id": "QP-6",
+    "name": "Dashboard ticket volume by product line over time from materialized snapshots",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "dashboard_metric_snapshots"
+    ],
+    "query": {
+      "collection": "dashboard_metric_snapshots",
+      "operation": "find",
+      "filter": {
+        "metric_name": "ticket_volume_by_product_line",
+        "time_bucket_granularity": "<hour|day|week>",
+        "time_bucket_start": {
+          "$gte": "<start_date>",
+          "$lt": "<end_date>"
+        }
+      },
+      "projection": {
+        "_id": 0,
+        "time_bucket_start": 1,
+        "dimension_key": 1,
+        "dimension_label": 1,
+        "metric_value": 1,
+        "last_computed_at": 1
+      },
+      "sort": {
+        "time_bucket_start": 1,
+        "dimension_label": 1
+      }
+    },
+    "purpose": "Read precomputed product-line ticket volume points for a low-latency live dashboard experience."
+  },
+  "QP-7": {
+    "id": "QP-7",
+    "name": "Dashboard ticket volume by priority over time from materialized snapshots",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "dashboard_metric_snapshots"
+    ],
+    "query": {
+      "collection": "dashboard_metric_snapshots",
+      "operation": "find",
+      "filter": {
+        "metric_name": "ticket_volume_by_priority",
+        "time_bucket_granularity": "<hour|day|week>",
+        "time_bucket_start": {
+          "$gte": "<start_date>",
+          "$lt": "<end_date>"
+        }
+      },
+      "projection": {
+        "_id": 0,
+        "time_bucket_start": 1,
+        "dimension_key": 1,
+        "dimension_label": 1,
+        "metric_value": 1,
+        "last_computed_at": 1
+      },
+      "sort": {
+        "time_bucket_start": 1,
+        "dimension_label": 1
+      }
+    },
+    "purpose": "Read precomputed priority-based ticket volume points for a low-latency live dashboard experience."
+  },
+  "QP-8": {
+    "id": "QP-8",
+    "name": "Dashboard average resolution time by team from materialized snapshots",
+    "serves": [
+      "UC-4",
+      "J-2"
+    ],
+    "collections": [
+      "dashboard_metric_snapshots"
+    ],
+    "query": {
+      "collection": "dashboard_metric_snapshots",
+      "operation": "find",
+      "filter": {
+        "metric_name": "avg_resolution_time_by_team",
+        "time_bucket_granularity": "<hour|day|week>",
+        "time_bucket_start": {
+          "$gte": "<start_date>",
+          "$lt": "<end_date>"
+        }
+      },
+      "projection": {
+        "_id": 0,
+        "time_bucket_start": 1,
+        "dimension_key": 1,
+        "dimension_label": 1,
+        "metric_value": 1,
+        "last_computed_at": 1
+      },
+      "sort": {
+        "time_bucket_start": 1,
+        "dimension_label": 1
+      }
+    },
+    "purpose": "Read precomputed average-resolution-time-by-team points for a low-latency live dashboard experience."
+  }
+}

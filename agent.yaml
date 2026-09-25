@@ -1,0 +1,32 @@
+# Human-readable app slug used by Agentic Platform tooling.
+# `agentic create` should rewrite this when generating a new app from the template.
+name: poc-data-seed
+# Python import path to the SDK App instance.
+# Format: <module path>:<variable name>. This template exposes `app` from
+# src/agent_poc_data_seed/main.py.
+entrypoint: agent_poc_data_seed.main:app
+framework: langgraph
+# Runtime feature flags controlled by agent.yaml, not .env. A key that is
+# present here wins over any ENABLE_* environment variable, so declaring memory
+# keeps ambient environment state from switching it on behind your back.
+# Memory stores explicit run episodes and successful repair procedures;
+# VOYAGE_API_KEY must be present in .env when memory is enabled.
+features:
+    durable_workflow: true
+    memory: true
+# Tool placement and pass-through secrets. Input reading and artifact writing
+# run in the tool sandbox so they remain isolated from the agent runtime.
+sandboxes:
+    agent:
+        secrets: ["*"]
+        tools: []
+    tool:
+        secrets: ["*"]
+        tools:
+            - read_seed_input_from_github_tool
+            - commit_seed_bundle_to_github_tool
+            - read_seed_repair_source_from_github_tool
+            - validate_github_seed_bundle_tool
+version: 0.1.0
+network:
+    egress_mode: allow_all

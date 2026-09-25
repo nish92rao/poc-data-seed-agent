@@ -1,0 +1,410 @@
+{
+  pov_id: '1790237138344',
+  user_email: 'vinod.krishnan@mongodb.com',
+  pov_name: 'triage-support',
+  transcript: 'Support Ticket Triage & Insights — Discovery Call\nCustomer: Northwind Logistics\nAttendees: Priya Nair (Head of Customer Support, Northwind), Alex Chen (Solutions Architect, MongoDB)\n\nAlex: Thanks for making time. Walk me through how support tickets work today.\n\nPriya: Sure. We get about 3,000 tickets a week across email, chat, and phone,\nall logged into our helpdesk tool. Each ticket has a subject, a free-text\ndescription, the customer\'s account tier, product line, and a priority\nlevel our agents set manually. The problem is triage — a new ticket sits\nin a queue until an agent manually reads it and decides who should handle\nit and how urgent it is. That takes 10-15 minutes per ticket sometimes.\n\nAlex: What would "solved" look like?\n\nPriya: When a ticket comes in, I want the system to automatically suggest\na priority and route it to the right team, based on what\'s actually in\nthe ticket text — not just keyword rules. And when an agent opens a\nticket, I want them to immediately see 3-4 similar tickets we\'ve resolved\nbefore, with how those were resolved, so they\'re not starting from\nscratch every time.\n\nAlex: Do you have any existing categorization or tagging on old tickets?\n\nPriya: Yes — about 80,000 historical tickets, each already tagged with a\nresolution category and a resolution summary written by the agent. That\'s\nthe data we\'d want to search against for "similar past tickets."\n\nAlex: Any reporting needs beyond the individual ticket view?\n\nPriya: Definitely. I want a dashboard showing ticket volume by product\nline and priority over time, and average resolution time by team. Right\nnow I get that from a spreadsheet someone updates manually once a week,\nwhich is way too slow — I want to see it live.\n\nAlex: Who else besides you would use this day to day?\n\nPriya: Our support agents are the main users — they\'d see the queue, open\na ticket, see suggested priority and similar tickets, and mark it\nresolved. Team leads would use the dashboard. I don\'t think we need\ncustomer-facing access to this at all, this is purely internal.\n\nAlex: Any concerns about scale or performance?\n\nPriya: The historical ticket volume will keep growing — we\'re not\ndeleting anything for compliance reasons — so search over that needs to\nstay fast even as it grows into the hundreds of thousands. And the\nsimilar-ticket suggestions need to feel instant when an agent opens a\nticket, not a multi-second wait.\n\nAlex: Got it. For this proof of concept, we\'d keep it focused: import a\nrepresentative slice of your historical tickets, build the triage\nsuggestion and similar-ticket search on top of that, and a live\ndashboard. We wouldn\'t integrate with your actual helpdesk tool for this\nfirst pass — that\'d come after, if this proves out.\n\nPriya: That works for a POV. If this shows real time savings on triage, we\ncan talk about a real integration next quarter.',
+  initial_spec: {
+    executive_summary: 'Northwind Logistics wants an internal proof of value to reduce manual support-ticket triage effort and improve agent efficiency. Today, roughly 3,000 weekly tickets from email, chat, and phone are manually reviewed and prioritized, which can take 10–15 minutes per ticket. The desired POV should demonstrate automatic triage suggestions based on ticket text, retrieval of similar resolved historical tickets with resolution context, and a live operational dashboard for support leadership.',
+    business_problem: 'Northwind’s support process relies on manual triage of incoming tickets. Agents read each ticket and decide urgency and handling team manually, creating delays and inefficiency. Reporting is also slow because leadership depends on a manually updated weekly spreadsheet instead of live operational visibility.',
+    current_state: 'Northwind receives about 3,000 support tickets per week across email, chat, and phone, all logged into a helpdesk tool. Tickets include subject, free-text description, customer account tier, product line, and an agent-set priority. New tickets wait in a queue until an agent manually reads them and determines urgency and who should handle them. Historical data includes about 80,000 tickets tagged with resolution category and agent-written resolution summary. Reporting on ticket volume and resolution time is currently produced manually in a weekly spreadsheet.',
+    desired_future_state: 'For the POV, Northwind wants an internal system that uses ticket content to suggest priority and routing destination, shows agents similar previously resolved tickets with resolution details when they open a ticket, and provides a live dashboard for support leaders. The POV should use a representative slice of historical tickets rather than integrating with the production helpdesk tool in the first pass.',
+    business_objectives: [
+      {
+        id: 'BO-1',
+        description: 'Reduce time spent manually triaging incoming support tickets.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said triage is the problem and that manual review can take \'10-15 minutes per ticket sometimes.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'BO-2',
+        description: 'Improve agent efficiency by helping agents avoid starting from scratch on repeat or similar issues.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said agents should immediately see \'3-4 similar tickets we\'ve resolved before, with how those were resolved, so they\'re not starting from scratch every time.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'BO-3',
+        description: 'Provide faster operational reporting for support leadership through live dashboards instead of manual weekly spreadsheet updates.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said the spreadsheet updated manually once a week is \'way too slow\' and that \'I want to see it live.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'BO-4',
+        description: 'Demonstrate measurable time savings in triage through the POV to justify future production integration.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'If this shows real time savings on triage, we can talk about a real integration next quarter.\'',
+        speaker: 'Priya',
+        timestamp: null
+      }
+    ],
+    personas: [
+      {
+        id: 'P-1',
+        name: 'Support Agent',
+        description: 'Primary day-to-day user handling ticket queues and resolution workflow.',
+        goals: [
+          'Review incoming tickets',
+          'Use suggested priority during triage',
+          'Review suggested routing destination/team during triage',
+          'See similar resolved tickets and their resolutions',
+          'Mark tickets resolved'
+        ]
+      },
+      {
+        id: 'P-2',
+        name: 'Team Lead',
+        description: 'Operational manager using dashboard views to monitor ticket trends and team performance.',
+        goals: [
+          'Monitor ticket volume by product line over time',
+          'Monitor ticket volume by priority over time',
+          'Review average resolution time by team'
+        ]
+      },
+      {
+        id: 'P-3',
+        name: 'Head of Customer Support',
+        description: 'Business sponsor focused on triage efficiency and live support insights.',
+        goals: [
+          'Reduce triage effort',
+          'Improve support responsiveness',
+          'Gain live visibility into support operations',
+          'Validate value before pursuing production integration'
+        ]
+      }
+    ],
+    user_journeys: [
+      {
+        id: 'J-1',
+        persona_id: 'P-1',
+        title: 'Agent triages an incoming ticket',
+        steps: [
+          'View incoming ticket in the queue',
+          'Open the ticket',
+          'Review the system-suggested priority',
+          'Review the system-suggested routing destination or team',
+          'Review 3-4 similar previously resolved tickets and their resolution details',
+          'Use the suggestions to decide how to handle the ticket',
+          'Mark the ticket resolved when work is complete'
+        ]
+      },
+      {
+        id: 'J-2',
+        persona_id: 'P-2',
+        title: 'Team lead monitors support operations',
+        steps: [
+          'Open the dashboard',
+          'Review ticket volume by product line over time',
+          'Review ticket volume by priority over time',
+          'Review average resolution time by team'
+        ]
+      }
+    ],
+    use_cases: [
+      {
+        id: 'UC-1',
+        title: 'Suggest priority for an incoming ticket',
+        description: 'Use ticket content to generate a suggested priority for triage.',
+        related_persona_ids: [
+          'P-1',
+          'P-3'
+        ]
+      },
+      {
+        id: 'UC-2',
+        title: 'Suggest routing destination for an incoming ticket',
+        description: 'Use ticket content to suggest which team should handle the ticket.',
+        related_persona_ids: [
+          'P-1',
+          'P-3'
+        ]
+      },
+      {
+        id: 'UC-3',
+        title: 'Retrieve similar resolved tickets',
+        description: 'Present similar historical tickets and how they were resolved when an agent opens a ticket.',
+        related_persona_ids: [
+          'P-1',
+          'P-3'
+        ]
+      },
+      {
+        id: 'UC-4',
+        title: 'View live support dashboard',
+        description: 'Provide live operational reporting for support leaders.',
+        related_persona_ids: [
+          'P-2',
+          'P-3'
+        ]
+      }
+    ],
+    functional_requirements: [
+      {
+        id: 'FR-1',
+        description: 'The POV should ingest a representative slice of historical support tickets.',
+        classification: 'EXPLICIT',
+        evidence: 'Alex said, \'For this proof of concept, we\'d keep it focused: import a representative slice of your historical tickets.\' Priya replied, \'That works for a POV.\'',
+        speaker: 'Alex / Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-2',
+        description: 'The system should suggest a priority for incoming tickets based on what is in the ticket text rather than only keyword rules.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'I want the system to automatically suggest a priority ... based on what\'s actually in the ticket text — not just keyword rules.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-3',
+        description: 'The system should suggest the appropriate team or routing destination for incoming tickets based on ticket text.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'I want the system to automatically suggest a priority and route it to the right team, based on what\'s actually in the ticket text.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-4',
+        description: 'When an agent opens a ticket, the system should show 3-4 similar previously resolved tickets.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'when an agent opens a ticket, I want them to immediately see 3-4 similar tickets we\'ve resolved before.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-5',
+        description: 'For each similar historical ticket shown, the system should present how that ticket was resolved.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said similar tickets should be shown \'with how those were resolved.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-6',
+        description: 'Support agents should be able to view the ticket queue, open a ticket, see suggested priority, see suggested routing destination, see similar tickets, and mark the ticket resolved.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said agents \'would see the queue, open a ticket, see suggested priority and similar tickets, and mark it resolved.\' Earlier she also said the system should \'route it to the right team.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-7',
+        description: 'The POV should provide a dashboard showing ticket volume by product line and priority over time.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'I want a dashboard showing ticket volume by product line and priority over time.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-8',
+        description: 'The POV should provide average resolution time by team in the dashboard.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya asked for \'average resolution time by team.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-9',
+        description: 'The POV is for internal users only and does not need customer-facing access.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'I don\'t think we need customer-facing access to this at all, this is purely internal.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-10',
+        description: 'For the first-pass POV, the solution should not integrate with the actual helpdesk tool.',
+        classification: 'EXPLICIT',
+        evidence: 'Alex said, \'We wouldn\'t integrate with your actual helpdesk tool for this first pass.\' Priya replied, \'That works for a POV.\'',
+        speaker: 'Alex / Priya',
+        timestamp: null
+      },
+      {
+        id: 'FR-11',
+        description: 'Whether routing in the POV only recommends a team or actually performs assignment is not confirmed and must be treated as unresolved.',
+        classification: 'UNKNOWN',
+        evidence: 'The transcript says the system should \'route it to the right team\' and also discusses \'suggested priority,\' but does not explicitly state whether POV routing is advisory only or performs assignment in the demo flow.',
+        speaker: null,
+        timestamp: null
+      }
+    ],
+    ai_genai_requirements: [
+      {
+        id: 'AI-1',
+        description: 'Use ticket subject and free-text description to derive triage suggestions from the actual content of the ticket.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said suggestions should be based on \'what\'s actually in the ticket text — not just keyword rules.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'AI-2',
+        description: 'Provide similarity-based retrieval over historical tickets to find relevant previously resolved cases.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said they want to search historical tickets for \'similar past tickets\' and show \'3-4 similar tickets we\'ve resolved before.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'AI-3',
+        description: 'Use historical tickets that already include resolution category and resolution summary as the source for similar-ticket search context.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said there are \'about 80,000 historical tickets, each already tagged with a resolution category and a resolution summary written by the agent. That\'s the data we\'d want to search against.\'',
+        speaker: 'Priya',
+        timestamp: null
+      }
+    ],
+    business_entities: [
+      {
+        name: 'Support Ticket',
+        description: 'Customer support case logged from email, chat, or phone with ticket content and support metadata.',
+        rough_volume: 'About 3,000 per week; historical set of about 80,000 and growing into the hundreds of thousands'
+      },
+      {
+        name: 'Resolution Category',
+        description: 'Existing tag on historical tickets indicating the type of resolution.',
+        rough_volume: null
+      },
+      {
+        name: 'Resolution Summary',
+        description: 'Agent-written summary describing how a historical ticket was resolved.',
+        rough_volume: null
+      },
+      {
+        name: 'Support Team',
+        description: 'Operational team to which a ticket may be routed or assigned.',
+        rough_volume: null
+      },
+      {
+        name: 'Product Line',
+        description: 'Ticket attribute used for reporting and analysis.',
+        rough_volume: null
+      },
+      {
+        name: 'Priority Level',
+        description: 'Urgency level currently set manually by agents and targeted for automated suggestion.',
+        rough_volume: null
+      },
+      {
+        name: 'Customer Account Tier',
+        description: 'Existing ticket attribute available on support records.',
+        rough_volume: null
+      }
+    ],
+    integrations: [
+      {
+        id: 'INT-1',
+        description: 'Future integration with the actual helpdesk tool may be considered after the POV if the proof demonstrates value.',
+        classification: 'EXPLICIT',
+        evidence: 'Alex said helpdesk integration would come \'after, if this proves out.\' Priya said, \'If this shows real time savings on triage, we can talk about a real integration next quarter.\'',
+        speaker: 'Alex / Priya',
+        timestamp: null
+      }
+    ],
+    mongodb_atlas_opportunities: [
+      {
+        id: 'MO-1',
+        description: 'Opportunity to support fast similarity search over historical tickets as data grows into the hundreds of thousands.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said search over historical tickets \'needs to stay fast even as it grows into the hundreds of thousands.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'MO-2',
+        description: 'Opportunity to support near-instant retrieval of similar-ticket suggestions when an agent opens a ticket.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said similar-ticket suggestions \'need to feel instant when an agent opens a ticket, not a multi-second wait.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'MO-3',
+        description: 'Opportunity to support live dashboarding over operational support data instead of weekly manual spreadsheet reporting.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said the current weekly spreadsheet is \'way too slow\' and that she wants reporting \'live.\'',
+        speaker: 'Priya',
+        timestamp: null
+      }
+    ],
+    pov_scope: 'Build an internal proof of value using a representative slice of historical support tickets to demonstrate ticket-priority suggestion, routing/team suggestion, similar-ticket retrieval with prior resolution context, and a live dashboard for support operations. Exclude production helpdesk integration from the first pass.',
+    assumptions: [
+      'The POV dataset will come from historical tickets rather than live ticket-system integration.',
+      'Support agents and team leads are the primary operational users for the POV.',
+      'Historical ticket fields available for the POV include subject, free-text description, account tier, product line, priority, resolution category, and resolution summary.'
+    ],
+    open_questions: [
+      'In the POV demo flow, is routing only a recommendation for the agent to review, or does the system actually assign the ticket to a team?',
+      'What data source will provide the inputs needed to calculate average resolution time by team in the POV, and are those timestamps/team ownership fields present in the representative historical slice?',
+      'What specific teams or routing destinations exist today, and how is correct routing currently determined?',
+      'What definition of \'real time savings on triage\' will Northwind use to evaluate whether the POV is successful?'
+    ],
+    success_criteria: [
+      {
+        id: 'SC-1',
+        description: 'The POV should demonstrate real time savings in ticket triage.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said, \'If this shows real time savings on triage, we can talk about a real integration next quarter.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'SC-2',
+        description: 'Similar-ticket suggestions should feel instant when an agent opens a ticket.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said similar-ticket suggestions need to \'feel instant ... not a multi-second wait.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'SC-3',
+        description: 'Historical-ticket search performance should remain fast as stored ticket volume grows into the hundreds of thousands.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said search needs to \'stay fast even as it grows into the hundreds of thousands.\'',
+        speaker: 'Priya',
+        timestamp: null
+      },
+      {
+        id: 'SC-4',
+        description: 'Dashboard reporting should be live rather than dependent on a manually updated weekly spreadsheet.',
+        classification: 'EXPLICIT',
+        evidence: 'Priya said the current weekly spreadsheet is \'way too slow\' and \'I want to see it live.\'',
+        speaker: 'Priya',
+        timestamp: null
+      }
+    ]
+  },
+  updated_at: '2026-09-24T08:14:37.509951+00:00',
+  created_at: '2026-09-24T08:05:38.345085+00:00',
+  spec_artifacts: {
+    data_model: {
+      path: 'spec_architect/data_model.json',
+      commit_sha: 'cc3e03b5c103bd694dd5ef7235ef446091344853',
+      url: 'https://github.com/vinodkrishnan23/pov-builder/blob/vinod-krishnan-mongodb-com/triage-support/spec_architect/data_model.json'
+    },
+    query_patterns: {
+      path: 'spec_architect/query_patterns.json',
+      commit_sha: 'a78e89a16c2f59ec8b23704c7e0d91122871abf3',
+      url: 'https://github.com/vinodkrishnan23/pov-builder/blob/vinod-krishnan-mongodb-com/triage-support/spec_architect/query_patterns.json'
+    },
+    api_contract: {
+      path: 'spec_architect/api_contract.json',
+      commit_sha: '9a26c4c483891a20122bbfdb43bb69990e404872',
+      url: 'https://github.com/vinodkrishnan23/pov-builder/blob/vinod-krishnan-mongodb-com/triage-support/spec_architect/api_contract.json'
+    },
+    frontend_contract: {
+      path: 'spec_architect/frontend_contract.json',
+      commit_sha: '2f88ab566d9432ee538cbdabe368bb9daa837688',
+      url: 'https://github.com/vinodkrishnan23/pov-builder/blob/vinod-krishnan-mongodb-com/triage-support/spec_architect/frontend_contract.json'
+    },
+    requirements: {
+      path: 'spec_architect/requirements.json',
+      commit_sha: '2b9552b250d7b438b1246f706e256c59139796b6',
+      url: 'https://github.com/vinodkrishnan23/pov-builder/blob/vinod-krishnan-mongodb-com/triage-support/spec_architect/requirements.json'
+    }
+  }
+}

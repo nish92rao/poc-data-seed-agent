@@ -1,0 +1,103 @@
+{
+  "patterns": [
+    {
+      "collection": "accounts",
+      "description": "Show recent delinquent accounts",
+      "id": "billing-01",
+      "limit": 20,
+      "match": {
+        "status": "delinquent"
+      },
+      "operation": "find",
+      "sort": {
+        "created_at": -1
+      }
+    },
+    {
+      "collection": "subscriptions",
+      "description": "Show an account's active subscriptions",
+      "id": "billing-02",
+      "limit": 10,
+      "match": {
+        "account_id": "<object_id>",
+        "status": "active"
+      },
+      "operation": "find",
+      "sort": {
+        "current_period_end": 1
+      }
+    },
+    {
+      "collection": "invoices",
+      "description": "Show open invoices due before a cursor date",
+      "id": "billing-03",
+      "limit": 20,
+      "match": {
+        "account_id": "<object_id>",
+        "due_at": {
+          "$lt": "<cursor_date_optional>"
+        },
+        "status": "open"
+      },
+      "operation": "find",
+      "sort": {
+        "due_at": 1
+      }
+    },
+    {
+      "collection": "payments",
+      "description": "Show paid revenue by plan",
+      "id": "billing-04",
+      "operation": "aggregate",
+      "pipeline": [
+        {
+          "$match": {
+            "status": "paid"
+          }
+        },
+        {
+          "$lookup": {
+            "as": "invoice",
+            "foreignField": "_id",
+            "from": "invoices",
+            "localField": "invoice_id"
+          }
+        },
+        {
+          "$unwind": "$invoice"
+        },
+        {
+          "$lookup": {
+            "as": "subscription",
+            "foreignField": "_id",
+            "from": "subscriptions",
+            "localField": "invoice.subscription_id"
+          }
+        },
+        {
+          "$unwind": "$subscription"
+        },
+        {
+          "$group": {
+            "_id": "$subscription.plan_id",
+            "payments": {
+              "$sum": 1
+            },
+            "revenue": {
+              "$sum": "$amount"
+            }
+          }
+        },
+        {
+          "$sort": {
+            "revenue": -1
+          }
+        },
+        {
+          "$limit": 5
+        }
+      ]
+    }
+  ],
+  "poc_id": "poc_01J8Q8MFYJ6NVJ8B2Q5V2D9Q1A"
+}

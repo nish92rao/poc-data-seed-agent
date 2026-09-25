@@ -1,0 +1,13 @@
+{
+  "accepted_at": "2026-09-25T06:49:37Z",
+  "poc_id": "poc_01J8Q8MFYJ6NVJ8B2Q5V2D9Q3A",
+  "spec_version": "v001",
+  "code_version": "v013",
+  "repository": "nish92rao/magenta-test-repo",
+  "branch": "poc/poc_01J8Q8MFYJ6NVJ8B2Q5V2D9Q3A",
+  "spec_commit_sha": "b8edfe193f1aea4ca46e37b1e6c931af16a93d56",
+  "source_commit_sha": "c9c8736a302644e583a4a514347df37155fbd00b",
+  "report_commit_sha": "37aa9d873f1e3fc64ee97b52add4aca19c7b4173",
+  "run_id": "run_01J8Q8MFYJ6NVJ8B2Q5V2D9Q5B",
+  "validation_status": "succeeded"
+}

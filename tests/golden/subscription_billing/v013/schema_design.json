@@ -1,0 +1,315 @@
+{
+  "collections": [
+    {
+      "fields": [
+        {
+          "name": "_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "account_number",
+          "type": "string"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "date"
+        }
+      ],
+      "indexes": [
+        {
+          "keys": {
+            "account_number": 1
+          },
+          "unique": true
+        },
+        {
+          "keys": {
+            "email": 1
+          },
+          "unique": true
+        },
+        {
+          "keys": {
+            "created_at": -1,
+            "status": 1
+          }
+        }
+      ],
+      "name": "accounts",
+      "seed": {
+        "count": 60,
+        "notes": "Include active, trial, and delinquent accounts."
+      }
+    },
+    {
+      "fields": [
+        {
+          "name": "_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "plan_code",
+          "type": "string"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "monthly_price",
+          "type": "number"
+        },
+        {
+          "name": "active",
+          "type": "boolean"
+        }
+      ],
+      "indexes": [
+        {
+          "keys": {
+            "plan_code": 1
+          },
+          "unique": true
+        },
+        {
+          "keys": {
+            "active": 1,
+            "monthly_price": 1
+          }
+        }
+      ],
+      "name": "plans",
+      "seed": {
+        "count": 6,
+        "notes": "Use active monthly plans with distinct prices."
+      }
+    },
+    {
+      "fields": [
+        {
+          "name": "_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "account_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "plan_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "started_at",
+          "type": "date"
+        },
+        {
+          "name": "current_period_end",
+          "type": "date"
+        }
+      ],
+      "indexes": [
+        {
+          "keys": {
+            "account_id": 1,
+            "status": 1
+          },
+          "unique": false
+        },
+        {
+          "keys": {
+            "current_period_end": 1,
+            "plan_id": 1
+          },
+          "unique": false
+        }
+      ],
+      "name": "subscriptions",
+      "relationships": [
+        {
+          "embed_or_reference": "reference",
+          "field": "account_id",
+          "references": "accounts._id"
+        },
+        {
+          "embed_or_reference": "reference",
+          "field": "plan_id",
+          "references": "plans._id"
+        }
+      ],
+      "seed": {
+        "count": 120,
+        "notes": "Every subscription belongs to one account and one plan."
+      }
+    },
+    {
+      "fields": [
+        {
+          "name": "_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "invoice_number",
+          "type": "string"
+        },
+        {
+          "name": "account_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "subscription_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "amount_due",
+          "type": "number"
+        },
+        {
+          "name": "due_at",
+          "type": "date"
+        },
+        {
+          "name": "issued_at",
+          "type": "date"
+        }
+      ],
+      "indexes": [
+        {
+          "keys": {
+            "invoice_number": 1
+          },
+          "unique": true
+        },
+        {
+          "keys": {
+            "account_id": 1,
+            "due_at": 1,
+            "status": 1
+          },
+          "unique": false
+        },
+        {
+          "keys": {
+            "issued_at": -1,
+            "subscription_id": 1
+          },
+          "unique": false
+        }
+      ],
+      "name": "invoices",
+      "relationships": [
+        {
+          "embed_or_reference": "reference",
+          "field": "account_id",
+          "references": "accounts._id"
+        },
+        {
+          "embed_or_reference": "reference",
+          "field": "subscription_id",
+          "references": "subscriptions._id"
+        }
+      ],
+      "seed": {
+        "count": 240,
+        "notes": "Include paid, open, and overdue invoices."
+      }
+    },
+    {
+      "fields": [
+        {
+          "name": "_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "payment_reference",
+          "type": "string"
+        },
+        {
+          "name": "account_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "invoice_id",
+          "type": "ObjectId"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "amount",
+          "type": "number"
+        },
+        {
+          "name": "paid_at",
+          "type": "date"
+        }
+      ],
+      "indexes": [
+        {
+          "keys": {
+            "payment_reference": 1
+          },
+          "unique": true
+        },
+        {
+          "keys": {
+            "invoice_id": 1,
+            "status": 1
+          },
+          "unique": false
+        },
+        {
+          "keys": {
+            "account_id": 1,
+            "paid_at": -1
+          },
+          "unique": false
+        }
+      ],
+      "name": "payments",
+      "relationships": [
+        {
+          "embed_or_reference": "reference",
+          "field": "account_id",
+          "references": "accounts._id"
+        },
+        {
+          "embed_or_reference": "reference",
+          "field": "invoice_id",
+          "references": "invoices._id"
+        }
+      ],
+      "seed": {
+        "count": 180,
+        "notes": "Payments must reference invoices and accounts consistently."
+      }
+    }
+  ],
+  "database_name": "poc_subscription_billing_001",
+  "poc_id": "poc_01J8Q8MFYJ6NVJ8B2Q5V2D9Q1A",
+  "seed_requirements": {
+    "deterministic_seed": 20260923,
+    "notes": "Seed a subscription billing platform with active and delinquent accounts.",
+    "referential_integrity": true
+  }
+}

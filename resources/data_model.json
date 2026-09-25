@@ -1,0 +1,347 @@
+{
+  "collections": [
+    {
+      "name": "support_tickets",
+      "description": "Core collection for imported historical support tickets and any simulated incoming tickets used in the POV. This supports triage suggestion, similar-ticket retrieval, and dashboard analytics.",
+      "traceability": {
+        "business_entities": [
+          "Support Ticket",
+          "Resolution Record",
+          "Support Team",
+          "Product Line",
+          "Priority"
+        ],
+        "use_cases": [
+          "UC-1",
+          "UC-2",
+          "UC-3",
+          "UC-4"
+        ],
+        "functional_requirements": [
+          "FR-1",
+          "FR-3",
+          "FR-4",
+          "FR-5",
+          "FR-6",
+          "FR-7",
+          "FR-8",
+          "FR-9",
+          "FR-10",
+          "FR-11",
+          "FR-12",
+          "FR-14",
+          "FR-15",
+          "FR-16"
+        ],
+        "ai_genai_requirements": [
+          "AI-1",
+          "AI-2",
+          "AI-3"
+        ]
+      },
+      "document_shape": {
+        "_id": {
+          "type": "objectId",
+          "required": true
+        },
+        "ticket_id": {
+          "type": "string",
+          "required": true,
+          "description": "External/import identifier from the representative historical dataset or simulated POV dataset."
+        },
+        "subject": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": true
+        },
+        "customer_account_tier": {
+          "type": "string",
+          "required": true,
+          "description": "Ticket attribute explicitly mentioned in FR-1 and retained as a field rather than a separate collection because it is a small reporting/classification dimension."
+        },
+        "product_line": {
+          "type": "string",
+          "required": true
+        },
+        "manual_priority": {
+          "type": "string",
+          "required": false,
+          "description": "Priority level manually set by agents in historical/current data. Optional because exact availability in every imported record is not guaranteed."
+        },
+        "channel": {
+          "type": "string",
+          "required": false,
+          "enum": [
+            "email",
+            "chat",
+            "phone"
+          ],
+          "description": "Optional because POV review flagged channel availability as unconfirmed in exported data."
+        },
+        "status": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "new",
+            "open",
+            "resolved",
+            "closed"
+          ],
+          "description": "Minimal lifecycle state needed to distinguish resolved historical tickets used for similar-ticket retrieval and resolution-time analytics."
+        },
+        "assigned_team_id": {
+          "type": "objectId",
+          "required": false,
+          "description": "Reference to support_teams for historically assigned/resolved owner team if available in imported data."
+        },
+        "created_at": {
+          "type": "date",
+          "required": true
+        },
+        "triaged_at": {
+          "type": "date",
+          "required": false,
+          "description": "Optional timestamp if available; useful for POV triage efficiency analysis but not required by the spec."
+        },
+        "resolved_at": {
+          "type": "date",
+          "required": false,
+          "description": "Present for resolved historical tickets and used to calculate resolution time metrics."
+        },
+        "resolution": {
+          "type": "document",
+          "required": false,
+          "description": "Embedded because resolution category and summary are described as attached outcome information for a ticket and are always consumed with that ticket in similar-ticket retrieval.",
+          "fields": {
+            "category": {
+              "type": "string",
+              "required": true
+            },
+            "summary": {
+              "type": "string",
+              "required": true
+            }
+          }
+        },
+        "triage_suggestion": {
+          "type": "document",
+          "required": false,
+          "description": "Embedded suggestion output for POV scoring and display. Embedded because suggestions are viewed in the context of a single ticket and do not need independent lifecycle for this POV.",
+          "fields": {
+            "suggested_priority": {
+              "type": "string",
+              "required": false
+            },
+            "suggested_team_id": {
+              "type": "objectId",
+              "required": false
+            },
+            "generated_at": {
+              "type": "date",
+              "required": false
+            },
+            "model_version": {
+              "type": "string",
+              "required": false
+            },
+            "confidence": {
+              "type": "number",
+              "required": false
+            }
+          }
+        },
+        "text_embedding": {
+          "type": "array<float>",
+          "required": false,
+          "description": "Vector representation of ticket subject+description for semantic similar-ticket retrieval."
+        },
+        "ingest_batch_id": {
+          "type": "string",
+          "required": false,
+          "description": "Identifies the imported representative slice for repeatable POV loads."
+        },
+        "is_historical_import": {
+          "type": "bool",
+          "required": true,
+          "description": "True for imported historical dataset, false for any simulated new POV tickets."
+        }
+      },
+      "embedding_vs_reference": {
+        "embedded": [
+          "resolution",
+          "triage_suggestion"
+        ],
+        "references": [
+          {
+            "field": "assigned_team_id",
+            "target_collection": "support_teams"
+          },
+          {
+            "field": "triage_suggestion.suggested_team_id",
+            "target_collection": "support_teams"
+          }
+        ],
+        "rationale": "Resolution and suggestion outputs are tightly coupled to a ticket and read together with it. Support team is referenced to avoid duplicating team names across many tickets and to support analytics grouped by team metadata."
+      },
+      "relationships": [
+        {
+          "type": "many-to-one",
+          "field": "assigned_team_id",
+          "target_collection": "support_teams"
+        },
+        {
+          "type": "many-to-one",
+          "field": "triage_suggestion.suggested_team_id",
+          "target_collection": "support_teams"
+        }
+      ]
+    },
+    {
+      "name": "support_teams",
+      "description": "Reference collection for the internal teams that tickets may be routed to and reported by in dashboard metrics.",
+      "traceability": {
+        "business_entities": [
+          "Support Team"
+        ],
+        "use_cases": [
+          "UC-2",
+          "UC-4"
+        ],
+        "functional_requirements": [
+          "FR-4",
+          "FR-11",
+          "FR-15"
+        ]
+      },
+      "document_shape": {
+        "_id": {
+          "type": "objectId",
+          "required": true
+        },
+        "team_id": {
+          "type": "string",
+          "required": true,
+          "description": "Stable business identifier for import/demo mapping."
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": false
+        },
+        "active": {
+          "type": "bool",
+          "required": true
+        }
+      },
+      "embedding_vs_reference": {
+        "embedded": [],
+        "references": [],
+        "rationale": "Separate collection because teams are reused across many tickets and are a routing/reporting dimension."
+      },
+      "relationships": [
+        {
+          "type": "one-to-many",
+          "source_field": "_id",
+          "target_collection": "support_tickets",
+          "target_field": "assigned_team_id"
+        },
+        {
+          "type": "one-to-many",
+          "source_field": "_id",
+          "target_collection": "support_tickets",
+          "target_field": "triage_suggestion.suggested_team_id"
+        }
+      ]
+    },
+    {
+      "name": "dashboard_metric_snapshots",
+      "description": "Optional pre-aggregated metric snapshots to support live operational dashboards with fast reads if the POV chooses to materialize metrics instead of computing every chart directly from tickets.",
+      "traceability": {
+        "business_entities": [
+          "Support Ticket",
+          "Support Team",
+          "Product Line",
+          "Priority"
+        ],
+        "use_cases": [
+          "UC-4"
+        ],
+        "functional_requirements": [
+          "FR-9",
+          "FR-10",
+          "FR-11",
+          "FR-12",
+          "FR-15"
+        ]
+      },
+      "document_shape": {
+        "_id": {
+          "type": "objectId",
+          "required": true
+        },
+        "metric_name": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "ticket_volume_by_product_line",
+            "ticket_volume_by_priority",
+            "avg_resolution_time_by_team"
+          ]
+        },
+        "time_bucket_start": {
+          "type": "date",
+          "required": true
+        },
+        "time_bucket_granularity": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "hour",
+            "day",
+            "week"
+          ]
+        },
+        "dimension_key": {
+          "type": "string",
+          "required": true,
+          "description": "For example a product line name, priority value, or support team id/name depending on metric."
+        },
+        "dimension_label": {
+          "type": "string",
+          "required": true
+        },
+        "metric_value": {
+          "type": "number",
+          "required": true
+        },
+        "last_computed_at": {
+          "type": "date",
+          "required": true
+        }
+      },
+      "embedding_vs_reference": {
+        "embedded": [],
+        "references": [],
+        "rationale": "Separate materialized read model only for dashboard access patterns. This avoids redesigning support_tickets while allowing low-latency chart reads for live dashboards."
+      },
+      "relationships": []
+    }
+  ],
+  "relationship_summary": [
+    "support_tickets.assigned_team_id -> support_teams._id",
+    "support_tickets.triage_suggestion.suggested_team_id -> support_teams._id",
+    "dashboard_metric_snapshots is derived from support_tickets and optionally support_teams, not a system-of-record entity"
+  ],
+  "design_notes": [
+    "Do not create separate collections for product_line, priority, or customer_account_tier in this POV because the spec only requires them as ticket attributes/reporting dimensions, not managed master data.",
+    "Channel is modeled as optional due to review warning that exported dataset availability is unconfirmed.",
+    "A single support_tickets collection is sufficient because the spec centers on imported historical tickets plus simulated current review; splitting into current and historical ticket collections would add complexity without a stated requirement.",
+    "dashboard_metric_snapshots is included as an optional materialized collection because the spec requires live dashboards, but downstream implementation may also query support_tickets directly for charts if acceptable at POV scale."
+  ]
+}
